@@ -761,6 +761,9 @@ case "${target}" in
   i[[3456789]]86-*-rdos*)
     noconfigdirs="$noconfigdirs gdb target-newlib target-libgloss"
     ;;
+  lm8-*-*)
+    noconfigdirs="$noconfigdirs target-libiberty target-libstdc++-v3 ${libgcj} target-libssp"
+    ;;
   m32r-*-*)
     noconfigdirs="$noconfigdirs ${libgcj}"
     ;;

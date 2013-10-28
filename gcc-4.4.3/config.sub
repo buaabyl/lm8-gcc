@@ -284,6 +284,7 @@ case $basic_machine in
 	| nios | nios2 \
 	| ns16k | ns32k \
 	| or32 \
+	| lm8 \
 	| pdp10 | pdp11 | pj | pjl \
 	| powerpc | powerpc64 | powerpc64le | powerpcle | ppcbe \
 	| pyramid \
@@ -848,6 +849,9 @@ case $basic_machine in
 		;;
 	openrisc | openrisc-*)
 		basic_machine=or32-unknown
+		;;
+	lm8 | lm8-*)
+		basic_machine=lm8-unknown
 		;;
 	os400)
 		basic_machine=powerpc-ibm
@@ -1508,6 +1512,9 @@ case $basic_machine in
 		;;
 	or32-*)
 		os=-coff
+		;;
+	lm8-*)
+		os=-elf
 		;;
 	*-tti)	# must be before sparc entry or we get the wrong os.
 		os=-sysv3

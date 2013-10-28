@@ -1,0 +1,65 @@
+LIB1ASMSRC = lm8/libgcc.S
+LIB1ASMFUNCS =							\
+	_ashlqi3 _ashlhi3 _ashlsi3 _ashrqi3 _ashrhi3 _ashrsi3	\
+	_lshrqi3 _lshrhi3 _lshrsi3 _mulqi3 _mulhi3 _mulsi3	\
+	_udivqi3 _umodqi3 _divqi3 _modqi3			\
+	_udivhi3 _umodhi3 _divhi3 _modhi3			\
+	_udivsi3 _umodsi3 _divsi3 _modsi3			\
+	_cmpqi2 _cmphi2 _cmpsi2 _ucmphi2 _ucmpsi2		\
+	_clzqi2 _clzhi2 _clzsi2					\
+	_ctzqi2 _ctzhi2 _ctzsi2					\
+	_ffsqi2 _ffshi2 _ffssi2					\
+	_popcountqi2 _popcounthi2 _popcountsi2			\
+	_parityqi2 _parityhi2 _paritysi2			\
+	_irq_save_restore _prologue _epilogue
+	
+
+LIB2FUNCS_EXCLUDE = \
+	_muldi3 _negdi2 _lshrdi3 _ashldi3 _ashrdi3 _cmpdi2 _ucmpdi2	\
+	_clear_cache _enable_execute_stack _trampoline __main _absvsi2	\
+	_absvdi2 _addvsi3 _addvdi3 _subvsi3 _subvdi3 _mulvsi3 _mulvdi3	\
+	_negvsi2 _negvdi2 _ctors _ffssi2 _ffsdi2 _clz _clzsi2 _clzdi2	\
+	_ctzsi2 _ctzdi2 _popcount_tab _popcountsi2 _popcountdi2		\
+	_paritysi2 _paritydi2 _powisf2 _powidf2 _powixf2 _powitf2	\
+	_mulsc3 _muldc3 _mulxc3 _multc3 _divsc3 _divdc3 _divxc3		\
+	_divtc3 _bswapsi2 _bswapdi2					\
+	_divdi3 _moddi3 _udivdi3 _umoddi3 _udiv_w_sdiv _udivmoddi4
+
+# Disable building _eprintf and __gcc_bcmp
+LIB2FUNCS_ST = 
+
+# Turn off the building of exception handling libraries.
+LIB2ADDEH =
+LIB2ADDEHDEP =
+
+LIB2_SIDITI_CONV_FUNCS = \
+	_fixsfsi _fixunssfsi _floatsisf _floatunsisf
+
+# We do not have the DF type.
+TARGET_LIBGCC2_CFLAGS = -DDF=SF -Dinhibit_libc -Os
+LIBGCC2_DEBUG_CFLAGS = -g0
+
+fp-bit.c: $(srcdir)/config/fp-bit.c $(srcdir)/config/lm8/t-lm8
+	echo '#define FLOAT' > fp-bit.c
+	echo '#ifndef __CMODEL_LARGE__' >> fp-bit.c
+	echo '#ifndef __SIXTEEN_REGS__' >> fp-bit.c
+	echo '#define FLOAT_ONLY' >> fp-bit.c
+	echo '#define CMPtype QItype' >> fp-bit.c
+	echo '#define DF SF' >> fp-bit.c
+	echo '#define DI SI' >> fp-bit.c
+	echo '#define FLOAT_BIT_ORDER_MISMATCH' >> fp-bit.c
+	echo '#define SMALL_MACHINE' >> fp-bit.c
+	echo 'typedef int QItype __attribute__ ((mode (QI)));' >> fp-bit.c
+	cat $(srcdir)/config/fp-bit.c >> fp-bit.c
+	echo '#endif' >> fp-bit.c
+	echo '#endif' >> fp-bit.c
+
+FPBIT = fp-bit.c
+
+MULTILIB_OPTIONS = mcmodel=small/mcmodel=medium/mcmodel=large m16regs
+MULTILIB_DIRNAMES = small medium large r16
+
+MULTILIB_EXCEPTIONS = *mcmodel=large*/*m16regs*
+
+LIBGCC = stmp-multilib
+INSTALL_LIBGCC = install-multilib

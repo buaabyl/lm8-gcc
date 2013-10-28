@@ -355,6 +355,10 @@ ia64*-*-hpux*)
 	;;
 iq2000*-*-elf*)
         ;;
+lm8-*-*)
+	extra_parts="crt0.o"
+	tmake_file="lm8/t-default"	
+        ;;
 m32r-*-elf*|m32r-*-rtems*)
  	;;
 m32rle-*-elf*)

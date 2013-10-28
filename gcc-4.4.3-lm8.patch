@@ -1,0 +1,5304 @@
+diff -uNr gcc-4.4.3-org\config.sub gcc-4.4.3-lm8\config.sub
+--- gcc-4.4.3-org\config.sub	Mon Nov 23 07:09:42 2009
++++ gcc-4.4.3-lm8\config.sub	Wed Apr 14 15:34:40 2010
+@@ -284,6 +284,7 @@
+ 	| nios | nios2 \
+ 	| ns16k | ns32k \
+ 	| or32 \
++	| lm8 \
+ 	| pdp10 | pdp11 | pj | pjl \
+ 	| powerpc | powerpc64 | powerpc64le | powerpcle | ppcbe \
+ 	| pyramid \
+@@ -849,6 +850,9 @@
+ 	openrisc | openrisc-*)
+ 		basic_machine=or32-unknown
+ 		;;
++	lm8 | lm8-*)
++		basic_machine=lm8-unknown
++		;;
+ 	os400)
+ 		basic_machine=powerpc-ibm
+ 		os=-os400
+@@ -1508,6 +1512,9 @@
+ 		;;
+ 	or32-*)
+ 		os=-coff
++		;;
++	lm8-*)
++		os=-elf
+ 		;;
+ 	*-tti)	# must be before sparc entry or we get the wrong os.
+ 		os=-sysv3
+diff -uNr gcc-4.4.3-org\configure gcc-4.4.3-lm8\configure
+--- gcc-4.4.3-org\configure	Sat Apr 25 12:10:30 2009
++++ gcc-4.4.3-lm8\configure	Wed Apr 14 15:34:40 2010
+@@ -2526,6 +2526,9 @@
+   i[3456789]86-*-rdos*)
+     noconfigdirs="$noconfigdirs gdb target-newlib target-libgloss"
+     ;;
++  lm8-*-*)
++    noconfigdirs="$noconfigdirs target-libiberty target-libstdc++-v3 ${libgcj} target-libssp"
++    ;;
+   m32r-*-*)
+     noconfigdirs="$noconfigdirs ${libgcj}"
+     ;;
+diff -uNr gcc-4.4.3-org\configure.ac gcc-4.4.3-lm8\configure.ac
+--- gcc-4.4.3-org\configure.ac	Sat Apr 25 12:10:30 2009
++++ gcc-4.4.3-lm8\configure.ac	Wed Apr 14 15:34:40 2010
+@@ -761,6 +761,9 @@
+   i[[3456789]]86-*-rdos*)
+     noconfigdirs="$noconfigdirs gdb target-newlib target-libgloss"
+     ;;
++  lm8-*-*)
++    noconfigdirs="$noconfigdirs target-libiberty target-libstdc++-v3 ${libgcj} target-libssp"
++    ;;
+   m32r-*-*)
+     noconfigdirs="$noconfigdirs ${libgcj}"
+     ;;
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\constraints.md gcc-4.4.3-lm8\gcc\config\lm8\constraints.md
+--- gcc-4.4.3-org\gcc\config\lm8\constraints.md	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\constraints.md	Wed Apr 14 15:34:32 2010
+@@ -0,0 +1,25 @@
++;; Constraint definitions for Lattice Mico8 architecture.
++;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
++;;
++;; Contributed by Beyond Semiconductor (www.beyondsemi.com)
++;;
++;; This file is part of GCC.
++;;
++;; GCC is free software; you can redistribute it and/or modify
++;; it under the terms of the GNU General Public License as published by
++;; the Free Software Foundation; either version 3, or (at your option)
++;; any later version.
++;;
++;; GCC is distributed in the hope that it will be useful,
++;; but WITHOUT ANY WARRANTY; without even the implied warranty of
++;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++;; GNU General Public License for more details.
++;;
++;; You should have received a copy of the GNU General Public License
++;; along with GCC; see the file COPYING3.  If not see
++;; <http://www.gnu.org/licenses/>.
++
++(define_constraint "K"
++  "Integer constant in the range 0 @dots{} 31."
++  (and (match_code "const_int")
++       (match_test "ival >= 0 && ival <= 31")))
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\crt0.S gcc-4.4.3-lm8\gcc\config\lm8\crt0.S
+--- gcc-4.4.3-org\gcc\config\lm8\crt0.S	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\crt0.S	Wed Apr 14 15:34:32 2010
+@@ -0,0 +1,86 @@
++
++	.section .vectors,"ax"
++	.weak	__irq_save_restore2
++	b	__irq_save_restore2
++
++.globl _start
++_start:
++	/* Clear bss */
++	movi	r0,_lo(__bss_start)
++#if defined(__CMODEL_LARGE__) || defined(__CMODEL_MEDIUM__)
++	movi	r13,_hi(__bss_start)
++#endif
++#ifdef __CMODEL_LARGE__
++	movi	r14,_higher(__bss_start)
++	movi	r15,_highest(__bss_start)
++#endif
++	movi	r1,0
++
++3:
++	cmpi	r0,_lo(__bss_end)
++#if defined(__CMODEL_LARGE__) || defined(__CMODEL_MEDIUM__)
++	bnz	1f
++	cmpi	r13,_hi(__bss_end)
++#endif
++#ifdef __CMODEL_LARGE__
++	bnz	1f
++	cmpi	r14,_higher(__bss_end)
++	cmpi	r15,_highest(__bss_end)
++#endif
++	bz	2f
++1:	sspi	r1,r0
++	addi	r0,_lo(1)
++#if defined(__CMODEL_LARGE__) || defined(__CMODEL_MEDIUM__)
++	addic	r13,_hi(1)
++#endif
++#ifdef __CMODEL_LARGE__
++	addic	r14,_higher(1)
++	addic	r15,_highest(1)
++#endif
++	b	3b
++
++2:	/* Setup the stack */
++#if defined (__CMODEL_SMALL__)
++	movi	r14,__stack
++
++	/* Mark the end-of-stack */
++	movi	r15,0
++#elif defined(__CMODEL_MEDIUM__)
++	movi	r8,_lo(__stack)
++	movi	r9,_hi(__stack)
++
++	/* Mark the end-of-stack */
++	movi	r10,_lo(0)
++	movi	r11,_hi(0)
++#elif defined(__CMODEL_LARGE__)
++	/* -4 because main(int, char **, char **) and that third argument
++	 * is passed on the stack, otherwise the compile may access things
++	 * past the end of the stack space. */
++	movi	r24,_lo(__stack-4)
++	movi	r25,_hi(__stack-4)
++	movi	r26,_higher(__stack-4)
++	movi	r27,_highest(__stack-4)
++
++	/* Mark the end-of-stack */
++	movi	r28,_lo(0)
++	movi	r29,_hi(0)
++	movi	r30,_higher(0)
++	movi	r31,_highest(0)
++#endif
++
++	seti
++	call	main
++	clri
++
++	/* Kill the simulation */
++	movi	r31,0xde
++	movi	r30,0xad
++	movi	r29,0xbe
++	movi	r28,0xef
++	mov	r27,r0
++
++1:	b	1b
++
++__irq_save_restore2:
++	iret
++
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\libgcc.S gcc-4.4.3-lm8\gcc\config\lm8\libgcc.S
+--- gcc-4.4.3-org\gcc\config\lm8\libgcc.S	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\libgcc.S	Tue Sep 28 17:54:34 2010
+@@ -0,0 +1,1697 @@
++/* Copyright (C) 2009, 2010 Free Software Foundation, Inc.
++   Contributed by Beyond Semiconductor (www.beyondsemi.com)
++
++This file is free software; you can redistribute it and/or modify it
++under the terms of the GNU General Public License as published by the
++Free Software Foundation; either version 3, or (at your option) any
++later version.
++
++This file is distributed in the hope that it will be useful, but
++WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++General Public License for more details.
++
++Under Section 7 of GPL version 3, you are granted additional
++permissions described in the GCC Runtime Library Exception, version
++3.1, as published by the Free Software Foundation.
++
++You should have received a copy of the GNU General Public License and
++a copy of the GCC Runtime Library Exception along with this program;
++see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
++<http://www.gnu.org/licenses/>.  */
++
++#define ENTRY(sym)	\
++	.global	sym	@\
++	sym:
++
++/* ABI dependant things */
++
++#define STACK_ALIGN	1
++
++#if defined(__CMODEL_SMALL__)
++
++#define TMP_REGNUM1	r12
++#define TMP_REGNUM2	r15
++
++#define STACK_ALLOC(space)	\
++	addi	r14,-(((space) + STACK_ALIGN - 1) & -STACK_ALIGN)	@\
++@\
++	mov	TMP_REGNUM1,r14
++
++#define PP_ADDC(val)
++
++#define PUSH_REG(reg)	\
++	sspi	reg,TMP_REGNUM1						@\
++	addi	TMP_REGNUM1,1
++
++#define STACK_FREE(space)	\
++	addi	r14,((space) + STACK_ALIGN - 1) & -STACK_ALIGN
++
++#define POP_REG(reg)	\
++	lspi	reg,TMP_REGNUM1						@\
++	addi	TMP_REGNUM1,_lo(1)
++
++#define STACK_OFF(off)	\
++	mov	TMP_REGNUM1,r14						@\
++	addi	TMP_REGNUM1,(off)
++
++#define TMP_REGNUM2_SIZE	0
++#define PUSH_TMP_REGNUM2
++#define POP_TMP_REGNUM2
++
++#define PROLOGUE_TMP_REGNUM2
++#define EPILOGUE_TMP_REGNUM2
++#define PROLOGUE_TMP_REGNUM2_R10_R11
++#define EPILOGUE_TMP_REGNUM2_R10_R11
++
++#define LOAD_TEMP_SP		\
++	movi	r12,__irq_stack-14
++	
++#define ADD_TEMP_SP(val)	\
++	addi	r12,(val)
++
++#define PUSH_SP
++
++#define SET_SP			\
++	movi	r14,__irq_stack-14
++
++#define POP_SP			\
++	lspi	r14,r13
++
++#define IRQ_STACK_SIZE	0x20
++
++#elif defined(__CMODEL_MEDIUM__)
++
++#define TMP_REGNUM1	r12
++#define TMP_REGNUM2	r15
++
++#define STACK_ALLOC(space)	\
++	addi	r8,_lo(-(((space) + STACK_ALIGN - 1) & -STACK_ALIGN))	@\
++	addic	r9,_hi(-(((space) + STACK_ALIGN - 1) & -STACK_ALIGN))	@\
++@\
++	/* Load the page pointers */					@\
++	mov	r13,r9							@\
++	mov	TMP_REGNUM1,r8
++
++#define PP_ADDC(val)		\
++	addic	r13,_lo(val)
++
++/* Saves a register to stack.  Assumes the page pointers are setup already */
++#define PUSH_REG(reg)	\
++	sspi	reg,TMP_REGNUM1						@\
++	addi	TMP_REGNUM1,_lo(1)					@\
++	addic	r13,_hi(1)
++
++#define STACK_FREE(space)	\
++	addi	r8,_lo(((space) + STACK_ALIGN - 1) & -STACK_ALIGN)	@\
++	addic	r9,_hi(((space) + STACK_ALIGN - 1) & -STACK_ALIGN)	@\
++
++#define POP_REG(reg)	\
++	lspi	reg,TMP_REGNUM1						@\
++	addi	TMP_REGNUM1,_lo(1)					@\
++	addic	r13,_hi(1)
++
++#define STACK_OFF(off)	\
++	mov	r13,r9							@\
++	mov	TMP_REGNUM1,r8						@\
++	addi	TMP_REGNUM1,_lo(off)					@\
++	addic	r13,_hi(off)
++
++#define TMP_REGNUM2_SIZE	0
++#define PUSH_TMP_REGNUM2
++
++#define POP_TMP_REGNUM2	
++
++#define PROLOGUE_TMP_REGNUM2
++#define EPILOGUE_TMP_REGNUM2
++#define PROLOGUE_TMP_REGNUM2_R10_R11	\
++	STACK_ALLOC(2)							@\
++	PUSH_REG(r10)							@\
++	PUSH_REG(r11)
++
++#define EPILOGUE_TMP_REGNUM2_R10_R11	\
++	STACK_OFF(0)							@\
++	POP_REG(r10)							@\
++	POP_REG(r11)							@\
++	STACK_FREE(2)
++
++#define LOAD_TEMP_SP		\
++	movi	r12,_lo(__irq_stack-14)					@\
++	movi	r13,_hi(__irq_stack-14)
++	
++#define ADD_TEMP_SP(val)	\
++	addi	r12,_lo(val)						@\
++	addic	r13,_hi(val)
++
++#define PUSH_SP			\
++	sspi	r8,r12							@\
++	addi	r12,1							@\
++	sspi	r9,r12
++
++#define SET_SP			\
++	movi	r8,_lo(__irq_stack-14)					@\
++	movi	r9,_hi(__irq_stack-14)
++
++#define POP_SP			\
++	lspi	r8,r12							@\
++	addi	r12,1							@\
++	lspi	r9,r12
++
++#define IRQ_STACK_SIZE	0x200
++
++#elif defined(__CMODEL_LARGE__)
++
++#define TMP_REGNUM1	r12
++#define TMP_REGNUM2	r31
++
++#define STACK_ALLOC(space)	\
++	addi	r24,_lo(-(((space) + STACK_ALIGN - 1) & -STACK_ALIGN))	@\
++	addic	r25,_hi(-(((space) + STACK_ALIGN - 1) & -STACK_ALIGN))	@\
++	addic	r26,_higher(-(((space) + STACK_ALIGN - 1) & -STACK_ALIGN))	@\
++	addic	r27,_highest(-(((space) + STACK_ALIGN - 1) & -STACK_ALIGN))	@\
++@\
++	/* Load the page pointers */					@\
++	mov	r15,r27							@\
++	mov	r14,r26							@\
++	mov	r13,r25							@\
++	mov	TMP_REGNUM1,r24
++
++#define PP_ADDC(val)		\
++	addic	r13,_lo(val)						@\
++	addic	r14,_hi(val)						@\
++	addic	r15,_hi(val)
++
++/* Saves a register to stack.  Assumes the page pointers are setup already */
++#define PUSH_REG(reg)	\
++	sspi	reg,TMP_REGNUM1						@\
++	addi	TMP_REGNUM1,_lo(1)					@\
++	addic	r13,_hi(1)						@\
++	addic	r14,_higher(1)						@\
++	addic	r15,_highest(1)
++
++#define STACK_FREE(space)	\
++	addi	r24,_lo(((space) + STACK_ALIGN - 1) & -STACK_ALIGN)	@\
++	addic	r25,_hi(((space) + STACK_ALIGN - 1) & -STACK_ALIGN)	@\
++	addic	r26,_higher(((space) + STACK_ALIGN - 1) & -STACK_ALIGN)	@\
++	addic	r27,_highest(((space) + STACK_ALIGN - 1) & -STACK_ALIGN)
++
++#define POP_REG(reg)	\
++	lspi	reg,TMP_REGNUM1						@\
++	addi	TMP_REGNUM1,_lo(1)					@\
++	addic	r13,_hi(1)						@\
++	addic	r14,_higher(1)						@\
++	addic	r15,_highest(1)
++
++#define STACK_OFF(off)	\
++	mov	r15,r27							@\
++	mov	r14,r26							@\
++	mov	r13,r25							@\
++	mov	TMP_REGNUM1,r24						@\
++	addi	TMP_REGNUM1,_lo(off)					@\
++	addic	r13,_hi(off)						@\
++	addic	r14,_higher(off)					@\
++	addic	r15,_highest(off)
++
++#define TMP_REGNUM2_SIZE	1
++#define PUSH_TMP_REGNUM2	\
++	PUSH_REG(r31)
++
++#define POP_TMP_REGNUM2		\
++	POP_REG(r31)
++
++#define PROLOGUE_TMP_REGNUM2	\
++	STACK_ALLOC(1)							@\
++	PUSH_REG(TMP_REGNUM2)
++
++#define EPILOGUE_TMP_REGNUM2	\
++	STACK_OFF(0)							@\
++	POP_REG(TMP_REGNUM2)						@\
++	STACK_FREE(1)
++
++#define PROLOGUE_TMP_REGNUM2_R10_R11	PROLOGUE_TMP_REGNUM2
++#define EPILOGUE_TMP_REGNUM2_R10_R11	EPILOGUE_TMP_REGNUM2
++
++#define LOAD_TEMP_SP		\
++	movi	r12,_lo(__irq_stack-14)					@\
++	movi	r13,_hi(__irq_stack-14)					@\
++	movi	r14,_higher(__irq_stack-14)				@\
++	movi	r15,_highest(__irq_stack-14)
++	
++#define ADD_TEMP_SP(val)	\
++	addi	r12,_lo(val)						@\
++	addic	r13,_hi(val)						@\
++	addic	r14,_higher(val)					@\
++	addic	r15,_highest(val)
++
++#define PUSH_SP			\
++	sspi	r24,r12							@\
++	addi	r12,1							@\
++	sspi	r25,r12							@\
++	addi	r12,1							@\
++	sspi	r26,r12							@\
++	addi	r12,1							@\
++	sspi	r27,r12
++
++#define SET_SP			\
++	movi	r24,_lo(__irq_stack-14)					@\
++	movi	r25,_hi(__irq_stack-14)					@\
++	movi	r26,_higher(__irq_stack-14)				@\
++	movi	r27,_highest(__irq_stack-14)
++
++#define POP_SP			\
++	lspi	r24,r12							@\
++	addi	r12,1							@\
++	lspi	r25,r12							@\
++	addi	r12,1							@\
++	lspi	r26,r12							@\
++	addi	r12,1							@\
++	lspi	r27,r12
++
++#define IRQ_STACK_SIZE	0x200
++
++#endif
++
++#ifdef L_ashlqi3
++/* Shift r0 left by r1 bits */
++ENTRY(__ashlqi3)
++	testi	r1,0xff
++	bz	2f
++1:	clrc
++	rolc	r0,r0
++	addi	r1,-1
++	bnz	1b
++2:	ret
++#endif
++
++#ifdef L_ashlhi3
++/* Shift { r1, r0 } left by r2 bits */
++ENTRY(__ashlhi3)
++	testi	r2,0xff
++	bz	2f
++1:	clrc
++	rolc	r0,r0
++	rolc	r1,r1
++	addi	r2,-1
++	bnz	1b
++2:	ret
++#endif
++
++#ifdef L_ashlsi3
++/* Shift { r3, r2, r1, r0 } left by r4 bits */
++ENTRY(__ashlsi3)
++	testi	r4,0xff
++	bz	2f
++1:	clrc
++	rolc	r0,r0
++	rolc	r1,r1
++	rolc	r2,r2
++	rolc	r3,r3
++	addi	r4,-1
++	bnz	1b
++2:	ret
++#endif
++
++#ifdef L_ashrqi3
++/* Shift r0 right (arithmetically) by r1 bits */
++ENTRY(__ashrqi3)
++	testi	r1,0xff
++	bz	2f
++1:	cmpi	r0,0x80	/* Set carry to the negated value of r0[7] */
++	rorc	r0,r0
++	xori	r0,0x80
++	addi	r1,-1
++	bnz	1b
++2:	ret
++#endif
++
++#ifdef L_ashrhi3
++/* Shift { r1, r0 } right (arithmetically) by r2 bits */
++ENTRY(__ashrhi3)
++	testi	r2,0xff
++	bz	2f
++1:	cmpi	r1,0x80	/* Set carry to the negated value of r1[7] */
++	rorc	r1,r1
++	xori	r1,0x80
++	rorc	r0,r0
++	addi	r2,-1
++	bnz	1b
++2:	ret
++#endif
++
++#ifdef L_ashrsi3
++/* Shift { r3, r2, r1, r0 } right (arithmetically) by r4 bits */
++ENTRY(__ashrsi3)
++	testi	r4,0xff
++	bz	2f
++1:	cmpi	r3,0x80 /* Set carry to the negated value of r3[7] */
++	rorc	r3,r3
++	xori	r3,0x80
++	rorc	r2,r2
++	rorc	r1,r1
++	rorc	r0,r0
++	addi	r4,-1
++	bnz	1b
++2:	ret
++#endif
++
++#ifdef L_lshrqi3
++/* Shift r0 right (logically) by r1 bits */
++ENTRY(__lshrqi3)
++	testi	r1,0xff
++	bz	2f
++1:	clrc
++	rorc	r0,r0
++	addi	r1,-1
++	bnz	1b
++2:	ret
++#endif
++
++#ifdef L_lshrhi3
++/* Shift { r1, r0 } right (logically) by r2 bits */
++ENTRY(__lshrhi3)
++	testi	r2,0xff
++	bz	2f
++1:	clrc
++	rorc	r1,r1
++	rorc	r0,r0
++	addi	r2,-1
++	bnz	1b
++2:	ret
++#endif
++
++#ifdef L_lshrsi3
++/* Shift { r3, r2, r1, r0 } right (logically) by r4 bits */
++ENTRY(__lshrsi3)
++	testi	r4,0xff
++	bz	2f
++1:	clrc
++	rorc	r3,r3
++	rorc	r2,r2
++	rorc	r1,r1
++	rorc	r0,r0
++	addi	r4,-1
++	bnz	1b
++2:	ret
++#endif
++
++#ifdef L_parityqi2
++ENTRY(__parityqi2)
++	movi	r1,8
++	movi	r2,0
++
++1:
++	xor	r2,r0
++
++	ror	r0,r0
++
++	addi	r1,-1
++	bnz	1b
++
++	mov	r0,r2
++	andi	r0,1
++	ret
++#endif
++
++#ifdef L_parityhi2
++ENTRY(__parityhi2)
++	xor	r0,r1
++	b	__parityqi2
++#endif
++
++#ifdef L_paritysi2
++ENTRY(__paritysi2)
++	xor	r0,r1
++	xor	r0,r2
++	xor	r0,r3
++	b	__parityqi2
++#endif
++
++#ifdef L_popcountqi2
++ENTRY(__popcountqi2)
++	movi	r1,0
++	movi	r2,8
++
++1:
++	clrc
++	rolc	r0,r0
++
++	addic	r1,0
++	addi	r2,-1
++	bnz	1b
++
++	mov	r0,r1
++	ret
++#endif
++
++#ifdef L_popcounthi2
++ENTRY(__popcounthi2)
++	movi	r2,0
++	movi	r3,16
++
++1:
++	clrc
++	rolc	r0,r0
++	rolc	r1,r1
++
++	addic	r2,0
++	addi	r3,-1
++	bnz	1b
++
++	mov	r0,r2
++	movi	r1,0
++	ret
++#endif
++
++#ifdef L_popcountsi2
++ENTRY(__popcountsi2)
++	movi	r4,0
++	movi	r5,32
++
++1:
++	clrc
++	rolc	r0,r0
++	rolc	r1,r1
++	rolc	r2,r2
++	rolc	r3,r3
++
++	addic	r4,0
++	addi	r5,-1
++	bnz	1b
++
++	mov	r0,r4
++	movi	r1,0
++	ret
++#endif
++
++#ifdef L_ffsqi2
++ENTRY(__ffsqi2)
++	movi	r1,0
++
++	testi	r0,0xff
++	bz	2f
++
++1:
++	addi	r1,1
++
++	clrc
++	rorc	r0,r0
++	bnc	1b
++2:
++	mov	r0,r1
++	ret
++#endif
++
++#ifdef L_ffshi2
++ENTRY(__ffshi2)
++	movi	r2,_lo(0)
++	movi	r3,_hi(0)
++
++	mov	TMP_REGNUM1,r0
++	or	TMP_REGNUM1,r1
++	bz	2f
++
++1:
++	addi	r2,_lo(1)
++	addic	r3,_hi(1)
++
++	clrc
++	rorc	r1,r1
++	rorc	r0,r0
++	bnc	1b
++2:
++	mov	r0,r2
++	mov	r1,r3
++	ret
++#endif
++
++#ifdef L_ffssi2
++ENTRY(__ffssi2)
++	movi	r4,_lo(0)
++	movi	r5,_hi(0)
++
++	mov	r6,r0
++	or	r6,r1
++	or	r6,r2
++	or	r6,r3
++	bz	2f
++
++1:
++	addi	r3,_lo(1)
++	addic	r4,_hi(1)
++
++	clrc
++	rorc	r3,r3
++	rorc	r2,r2
++	rorc	r1,r1
++	rorc	r0,r0
++	bnc	1b
++2:
++	mov	r0,r4
++	mov	r1,r5
++	ret
++#endif
++
++#ifdef L_ctzqi2
++ENTRY(__ctzqi2)
++	testi	r0,0xff
++	bz	2f
++
++	movi	r1,-1
++
++1:
++	addi	r1,1
++
++	clrc
++	rorc	r0,r0
++	bnc	1b
++
++	mov	r0,r1
++2:	ret
++#endif
++
++#ifdef L_ctzhi2
++ENTRY(__ctzhi2)
++	mov	r4,r0
++	or	r4,r1
++	bz	2f
++
++	movi	r2,_lo(-1)
++	movi	r3,_hi(-1)
++
++1:
++	addi	r2,_lo(1)
++	addic	r3,_hi(1)
++
++	clrc
++	rorc	r1,r1
++	rorc	r0,r0
++	bnc	1b
++
++	mov	r0,r2
++	mov	r1,r3
++2:	ret
++#endif
++
++#ifdef L_ctzsi2
++ENTRY(__ctzsi2)
++	mov	r4,r0
++	or	r4,r1
++	or	r4,r2
++	or	r4,r3
++	bz	2f
++
++	movi	r4,_lo(-1)
++	movi	r5,_hi(-1)
++
++1:
++	addi	r3,_lo(1)
++	addic	r4,_hi(1)
++
++	clrc
++	rorc	r3,r3
++	rorc	r2,r2
++	rorc	r1,r1
++	rorc	r0,r0
++	bnc	1b
++
++	mov	r0,r4
++	mov	r1,r5
++2:	ret
++#endif
++
++#ifdef L_clzqi2
++/* Count the leading zeroes in r0 */
++ENTRY(__clzqi2)
++	testi	r0,0xff
++	bz	2f
++
++	movi	r1,-1
++
++1:
++	addi	r1,1
++
++	clrc
++	rolc	r0,r0
++	bnc	1b
++
++	mov	r0,r1
++2:	ret
++#endif
++
++#ifdef L_clzhi2
++/* Count the leading zeroes in { r1, r0 } */
++ENTRY(__clzhi2)
++	mov	r2,r0
++	or	r4,r1
++	bz	2f
++
++	movi	r2,_lo(-1)
++	movi	r3,_hi(-1)
++
++1:
++	addi	r2,_lo(1)
++	addic	r3,_hi(1)
++
++	clrc
++	rolc	r0,r0
++	rolc	r1,r1
++	bnc	1b
++
++	mov	r0,r2
++	mov	r1,r3
++2:	ret
++#endif
++
++#ifdef L_clzsi2
++/* Count the leading zeroes in { r3, r2, r1, r0 } */
++ENTRY(__clzsi2)
++	mov	r4,r0
++	or	r4,r1
++	or	r4,r2
++	or	r4,r3
++	bz	2f
++
++	movi	r4,_lo(-1)
++	movi	r5,_hi(-1)
++
++1:
++	addi	r3,_lo(1)
++	addic	r4,_hi(1)
++
++	clrc
++	rolc	r0,r0
++	rolc	r1,r1
++	rolc	r2,r2
++	rolc	r3,r3
++	bnc	1b
++
++	mov	r0,r4
++	mov	r1,r5
++2:	ret
++#endif
++
++#ifdef L_mulqi3
++/* Multiply r0 by r1 and return the result in r0.  r2 is temporary */
++ENTRY(__mulqi3)
++	movi	r2,0
++1:	testi	r0,0x01
++	bz	2f
++	add	r2,r1
++2:	clrc
++	rolc	r1,r1
++	clrc
++	rorc	r0,r0
++	bnz	1b
++	mov	r0,r2
++	ret
++#endif
++
++#ifdef L_mulhi3
++/* Multiply { r1, r0 } by { r3, r2 } and return the result in { r1, r0 }.
++ * r4 and r5 are temporary */
++ENTRY(__mulhi3)
++	movi	r4,0
++	movi	r5,0
++1:	testi	r0,0x01
++	bz	2f
++	add	r4,r2
++	addc	r5,r3
++2:	clrc
++	rolc	r2,r2
++	rolc	r3,r3
++	clrc
++	rorc	r1,r1
++	rorc	r0,r0
++	bnz	1b
++	mov	r0,r4
++	mov	r1,r5
++	ret
++#endif
++
++#ifdef L_mulsi3
++/* Multiply { r3, r2, r1, r0 } by { r7, r6, r5, r4 } and return the
++ * result in { r3,r2, r1, r0 } */
++ENTRY(__mulsi3)
++	PROLOGUE_TMP_REGNUM2_R10_R11
++
++	movi	TMP_REGNUM1,0
++	movi	TMP_REGNUM2,0
++	movi	r10,0
++	movi	r11,0
++
++1:	testi	r0,0x01
++	bz	2f
++
++	add	TMP_REGNUM1,r4
++	addc	TMP_REGNUM2,r5
++	addc	r10,r6
++	addc	r11,r7
++
++2:	clrc
++	rolc	r4,r4
++	rolc	r5,r5
++	rolc	r6,r6
++	rolc	r7,r7
++	clrc
++	rorc	r3,r3
++	rorc	r2,r2
++	rorc	r1,r1
++	rorc	r0,r0
++	bnz	1b
++
++	mov	r0,TMP_REGNUM1
++	mov	r1,TMP_REGNUM2
++	mov	r2,r10
++	mov	r3,r11
++
++	EPILOGUE_TMP_REGNUM2_R10_R11
++	ret
++#endif
++
++#ifdef L_udivqi3
++/* Divide r0 by r1, place the quotient r0 and the remainder in r2 */
++ENTRY(__udivqi3)
++	movi	r3,8
++	movi	r2,0
++	movi	r4,0
++
++1:	clrc
++	rolc	r0,r0
++	rolc	r2,r2
++
++	clrc
++	rolc	r4,r4
++
++	cmp	r2,r1
++	bc	2f
++
++	ori	r4,1
++	sub	r2,r1
++
++2:	addi	r3,-1
++	bnz	1b
++
++	mov	r0,r4
++	ret
++#endif
++
++#ifdef L_umodqi3
++ENTRY(__umodqi3)
++	call	__udivqi3
++	mov	r0,r2
++	ret
++#endif
++
++#ifdef L_divqi3
++ENTRY(__divqi3)
++	movi	r5,0
++
++	cmpi	r0,0x80
++	bc	1f
++	xori	r0,0xff
++	addi	r0,1
++
++	xori	r5,1
++1:
++	cmpi	r1,0x80
++	bc	1f
++	xori	r1,0xff
++	addi	r1,1
++
++	xori	r5,1
++1:
++	# r5 is not used by __udivqi3
++	call	__udivqi3
++
++	testi	r5,0xff
++	bz	1f
++
++	xori	r0,0xff
++	addi	r0,1
++1:
++	ret
++#endif
++
++#ifdef L_modqi3
++ENTRY(__modqi3)
++	movi	r5,0
++
++	cmpi	r0,0x80
++	bc	1f
++	xori	r0,0xff
++	addi	r0,1
++
++	xori	r5,1
++1:
++	cmpi	r1,0x80
++	bc	1f
++	xori	r1,0xff
++	addi	r1,1
++
++	xori	r5,1
++1:
++	# r5 is not used by __udivqi3
++	call	__udivqi3
++
++	testi	r5,0xff
++	bz	1f
++
++	xori	r2,0xff
++	addi	r2,1
++
++1:
++	mov	r0,r2
++
++	ret
++#endif
++
++#ifdef L_udivhi3
++/* Divide { r1, r0 } by { r3, r2 }, place the result in { r1, r0 } and
++ * the remainder into { r5, r4 }. */
++ENTRY(__udivhi3)
++	movi	TMP_REGNUM1,16
++
++	movi	r4,0
++	movi	r5,0
++
++	movi	r6,0
++	movi	r7,0
++
++1:	clrc
++	rolc	r0,r0
++	rolc	r1,r1
++	rolc	r4,r4
++	rolc	r5,r5
++
++	clrc
++	rolc	r6,r6
++	rolc	r7,r7
++
++	cmp	r5,r3
++	bc	2f
++	bnz	3f
++	cmp	r4,r2
++	bc	2f
++
++3:	ori	r6,1
++	sub	r4,r2
++	subc	r5,r3
++
++2:	addi	TMP_REGNUM1,-1
++	bnz	1b
++
++	mov	r0,r6
++	mov	r1,r7
++	ret
++#endif
++
++#ifdef L_umodhi3
++ENTRY(__umodhi3)
++	call	__udivhi3
++
++	mov	r0,r4
++	mov	r1,r5
++
++	ret
++#endif
++
++#ifdef L_divhi3
++ENTRY(__divhi3)
++	PROLOGUE_TMP_REGNUM2
++
++	movi	TMP_REGNUM2,0
++
++	cmpi	r1,0x80
++	bc	1f
++	xori	r0,0xff
++	xori	r1,0xff
++	addi	r0,_lo(1)
++	addic	r1,_hi(1)
++
++	xori	TMP_REGNUM2,1
++1:
++	cmpi	r3,0x80
++	bc	1f
++	xori	r2,0xff
++	xori	r3,0xff
++	addi	r2,_lo(1)
++	addic	r3,_highest(1)
++
++	xori	TMP_REGNUM2,1
++1:
++	# TMP_REGNUM2 is not used by __udivhi3
++	call	__udivhi3
++
++	testi	TMP_REGNUM2,0xff
++	bz	1f
++
++	xori	r0,0xff
++	xori	r1,0xff
++	addi	r0,_lo(1)
++	addic	r1,_hi(1)
++1:
++	EPILOGUE_TMP_REGNUM2
++	ret
++#endif
++
++#ifdef L_modhi3
++ENTRY(__modhi3)
++	PROLOGUE_TMP_REGNUM2
++
++	movi	TMP_REGNUM2,0
++
++	cmpi	r3,0x80
++	bc	1f
++	xori	r0,0xff
++	xori	r1,0xff
++	addi	r0,_lo(1)
++	addic	r1,_hi(1)
++
++	xori	TMP_REGNUM2,1
++1:
++	cmpi	r3,0x80
++	bc	1f
++	xori	r2,0xff
++	xori	r3,0xff
++	addi	r2,_lo(1)
++	addic	r3,_hi(1)
++
++	xori	TMP_REGNUM2,1
++1:
++	# TMP_REGNUM2 is not used by __udivhi3
++	call	__udivhi3
++
++	testi	TMP_REGNUM2,0xff
++	bz	1f
++
++	xori	r4,0xff
++	xori	r5,0xff
++	addi	r4,_lo(1)
++	addic	r5,_hi(1)
++
++1:
++	mov	r0,r4
++	mov	r1,r5
++	EPILOGUE_TMP_REGNUM2
++	ret
++#endif
++
++#ifdef L_udivsi3
++/* Divide { r3, r2, r1, r0 } by { r7, r6, r5, r4 } and return the result
++ * in { r3, r2, r1, r0 } and the remainder in { r7, r6, r5, r4 } */
++ENTRY(__udivsi3)
++	PROLOGUE_TMP_REGNUM2_R10_R11
++
++	STACK_ALLOC(8)
++
++	PUSH_REG(r0)
++	PUSH_REG(r1)
++	PUSH_REG(r2)
++	PUSH_REG(r3)
++
++	movi	r0,0
++	movi	r1,0
++	movi	r2,0
++	movi	r3,0
++
++	PUSH_REG(r0)
++	PUSH_REG(r1)
++	PUSH_REG(r2)
++	PUSH_REG(r3)
++
++	/* { r3, r2, r1, r0, MEM, MEM, MEM, MEM } is P */
++
++	movi	r10,0
++
++1:
++	STACK_OFF(0)
++	lspi	r11,TMP_REGNUM1
++	clrc
++	rolc	r11,r11
++	sspi	r11,TMP_REGNUM1
++	rorc	r11,r11	# Save carry
++
++	STACK_OFF(1)
++	rolc	r11,r11	# Restore carry
++	lspi	r11,TMP_REGNUM1
++	rolc	r11,r11
++	sspi	r11,TMP_REGNUM1
++	rorc	r11,r11	# Save carry
++
++	STACK_OFF(2)
++	rolc	r11,r11	# Restore carry
++	lspi	r11,TMP_REGNUM1
++	rolc	r11,r11
++	sspi	r11,TMP_REGNUM1
++	rorc	r11,r11	# Save carry
++
++	STACK_OFF(3)
++	rolc	r11,r11	# Restore carry
++	lspi	r11,TMP_REGNUM1
++	rolc	r11,r11
++	sspi	r11,TMP_REGNUM1
++
++	rolc	r0,r0
++	rolc	r1,r1
++	rolc	r2,r2
++	rolc	r3,r3
++
++	cmp	r3,r7
++	bc	2f
++	bnz	3f
++	cmp	r2,r6
++	bc	2f
++	bnz	3f
++	cmp	r1,r5
++	bc	2f
++	bnz	3f
++	cmp	r0,r4
++	bc	2f
++
++3:	
++	STACK_OFF(4)
++
++	mov	r11,r10
++	clrc
++	rorc	r11,r11
++	clrc
++	rorc	r11,r11
++	clrc
++	rorc	r11,r11
++	add	TMP_REGNUM1,r11
++	PP_ADDC(0)
++
++	movi	r11,0x80
++	mov	TMP_REGNUM2,r10
++	andi	TMP_REGNUM2,0x7
++	bz	4f
++5:	ror	r11,r11
++	addi	TMP_REGNUM2,-1
++	bnz	5b
++4:
++
++	lspi	TMP_REGNUM2,TMP_REGNUM1
++	or	TMP_REGNUM2,r11
++	sspi	TMP_REGNUM2,TMP_REGNUM1
++
++	sub	r0,r4
++	subc	r1,r5
++	subc	r2,r6
++	subc	r3,r7
++2:
++	addi	r10,1
++	cmpi	r10,32
++	bnz	1b
++
++	mov	r4,r0
++	mov	r5,r1
++	mov	r6,r2
++	mov	r7,r3
++
++	STACK_OFF(4)
++	POP_REG(r3)
++	POP_REG(r2)
++	POP_REG(r1)
++	POP_REG(r0)
++
++	STACK_FREE(8)
++
++	EPILOGUE_TMP_REGNUM2_R10_R11
++	ret
++#endif
++
++#ifdef L_umodsi3
++ENTRY(__umodsi3)
++	call	__udivsi3
++
++	mov	r0,r4
++	mov	r1,r5
++	mov	r2,r6
++	mov	r3,r7
++
++	ret
++#endif
++
++#ifdef L_divsi3
++ENTRY(__divsi3)
++	STACK_ALLOC(TMP_REGNUM2_SIZE+1)
++	PUSH_TMP_REGNUM2
++
++	movi	TMP_REGNUM2,0
++
++	cmpi	r3,0x80
++	bc	1f
++	xori	r0,0xff
++	xori	r1,0xff
++	xori	r2,0xff
++	xori	r3,0xff
++	addi	r0,_lo(1)
++	addic	r1,_hi(1)
++	addic	r2,_higher(1)
++	addic	r3,_highest(1)
++
++	xori	TMP_REGNUM2,1
++1:
++	cmpi	r7,0x80
++	bc	1f
++	xori	r4,0xff
++	xori	r5,0xff
++	xori	r6,0xff
++	xori	r7,0xff
++	addi	r4,_lo(1)
++	addic	r5,_hi(1)
++	addic	r6,_higher(1)
++	addic	r7,_highest(1)
++
++	xori	TMP_REGNUM2,1
++1:
++	sspi	TMP_REGNUM2,TMP_REGNUM1
++
++	call	__udivsi3
++
++	STACK_OFF(TMP_REGNUM2_SIZE)
++	lspi	TMP_REGNUM2,TMP_REGNUM1
++
++	testi	TMP_REGNUM2,0xff
++	bz	1f
++
++	xori	r0,0xff
++	xori	r1,0xff
++	xori	r2,0xff
++	xori	r3,0xff
++	addi	r0,_lo(1)
++	addic	r1,_hi(1)
++	addic	r2,_higher(1)
++	addic	r3,_highest(1)
++
++1:
++	STACK_OFF(0)
++	POP_TMP_REGNUM2
++	STACK_FREE(TMP_REGNUM2_SIZE+1)
++
++	ret
++#endif
++
++#ifdef L_modsi3
++ENTRY(__modsi3)
++	STACK_ALLOC(TMP_REGNUM2_SIZE+1)
++	PUSH_TMP_REGNUM2
++
++	movi	TMP_REGNUM2,0
++
++	cmpi	r3,0x80
++	bc	1f
++	xori	r0,0xff
++	xori	r1,0xff
++	xori	r2,0xff
++	xori	r3,0xff
++	addi	r0,_lo(1)
++	addic	r1,_hi(1)
++	addic	r2,_higher(1)
++	addic	r3,_highest(1)
++
++	xori	TMP_REGNUM2,1
++1:
++	cmpi	r7,0x80
++	bc	1f
++	xori	r4,0xff
++	xori	r5,0xff
++	xori	r6,0xff
++	xori	r7,0xff
++	addi	r4,_lo(1)
++	addic	r5,_hi(1)
++	addic	r6,_higher(1)
++	addic	r7,_highest(1)
++
++	xori	TMP_REGNUM2,1
++1:
++
++	sspi	TMP_REGNUM2,TMP_REGNUM1
++
++	call	__udivsi3
++
++	STACK_OFF(TMP_REGNUM2_SIZE)
++	lspi	TMP_REGNUM2,TMP_REGNUM1
++
++	testi	TMP_REGNUM2,0xff
++	bz	1f
++
++	xori	r4,0xff
++	xori	r5,0xff
++	xori	r6,0xff
++	xori	r7,0xff
++	addi	r4,_lo(1)
++	addic	r5,_hi(1)
++	addic	r6,_higher(1)
++	addic	r7,_highest(1)
++
++1:
++	mov	r0,r4
++	mov	r1,r5
++	mov	r2,r6
++	mov	r3,r7
++
++	STACK_OFF(0)
++	POP_TMP_REGNUM2
++	STACK_FREE(TMP_REGNUM2_SIZE+1)
++
++	ret
++#endif
++
++#ifdef L_cmpqi2
++/* compare r0 with r1, signed. r12, r13 are temporaries.
++ * CF=1 iff r0 >= r1
++ * ZF=1 iff r0 == r1
++ */
++ENTRY(__cmpqi2)
++	mov	r13,r0
++	sub	r13,r1   ;;  r13 = r0 - r1
++
++	cmpi	r0,0x80
++	rorc	r12,r0
++	cmpi	r13,0x80
++	rorc	r13,r1
++	xor	r12,r13
++
++	testi	r12,0x40
++	bnz	1f
++	movi	r12,0
++1:
++
++	xor	r12,r13  ;;  r12 = r12 ^ r13
++	xori	r12,0x80 ;;  r12 = r12 ^ 0x80
++
++	mov	r13,r0
++	sub	r13,r1   ;;  r13 = r0 - r1
++
++	rolc	r12,r12  ;;  set CF
++	testi	r13,0xff ;;  set ZF
++	ret
++#endif
++
++#ifdef L_cmphi2
++/* compare { r1, r0 } with { r3, r2 }, signed.
++ * r12, r13, are temporaries.
++ * CF=1 iff { r1, r0 } >= { r3, r2 }
++ * ZF=1 iff { r1, r0 } == { r3, r2 }
++ */
++ENTRY(__cmphi2)
++	mov	r13,r0
++	sub	r13,r2	;;  r13 = r0 - r2
++	mov	r13,r1
++	subc	r13,r3	;;  r13 = r1 - r3 - borrow
++
++	cmpi	r1,0x80
++	rorc	r12,r1
++	cmpi	r13,0x80
++	rorc	r13,r3
++	xor	r12,r13
++
++	testi	r12,0x40
++	bnz	1f
++	movi	r12,0
++1:
++
++	xor	r12,r13	;;  r12 = r12 ^ r13
++	xori	r12,0x80 ;;  r12 = r12 ^ 0x80
++
++	mov	r13,r0
++	sub	r13,r2	;;  r13 = r0 - r2
++	bnz	1f
++	mov	r13,r1
++	subc	r13,r3	;;  r13 = r1 - r3 - borrow
++	bnz	1f
++
++	rolc	r12,r12	;;  set CF
++	setz		;;  set ZF
++	ret
++
++1:	rolc	r12,r12	;; set CF
++	clrz		;; clear ZF
++	ret
++#endif
++
++#ifdef L_cmpsi2
++/* compare { r3, r2, r1, r0 } with { r7, r6, r5, r4 }, signed.
++ * r12, r13, are temporaries.
++ * CF=1 iff { r3, r2, r1, r0 } >= { r7, r6, r5, r4 }
++ * ZF=1 iff { r3, r2, r1, r0 } == { r7, r6, r5, r4 }
++ */
++ENTRY(__cmpsi2)
++	mov	r13,r0
++	sub	r13,r4	;;  r13 = r0 - r4
++	mov	r13,r1
++	subc	r13,r5	;;  r13 = r1 - r5 - borrow
++	mov	r13,r2
++	subc	r13,r6	;;  r13 = r2 - r6 - borrow
++	mov	r13,r3
++	subc	r13,r7	;;  r13 = r3 - r7 - borrow
++
++	cmpi	r3,0x80
++	rorc	r12,r3
++	cmpi	r13,0x80
++	rorc	r13,r7
++	xor	r12,r13
++
++	testi	r12,0x40
++	bnz	1f
++	movi	r12,0
++1:
++
++	xor	r12,r13	;;  r12 = r12 ^ r13
++	xori	r12,0x80 ;;  r12 = r12 ^ 0x80
++
++	mov	r13,r0
++	sub	r13,r4	;;  r13 = r0 - r4
++	bnz	1f
++	mov	r13,r1
++	subc	r13,r5	;;  r13 = r1 - r5 - borrow
++	bnz	1f
++	mov	r13,r2
++	subc	r13,r6	;;  r13 = r2 - r6 - borrow
++	bnz	1f
++	mov	r13,r3
++	subc	r13,r7	;;  r13 = r3 - r7 - borrow
++	bnz	1f
++
++	rolc	r12,r12	;;  set CF
++	setz		;;  set ZF
++	ret
++
++1:	rolc	r12,r12	;; set CF
++	clrz		;; clear ZF
++	ret
++#endif
++
++#ifdef L_ucmphi2
++/* compare { r1, r0 } with { r3, r2 }, unsigned.
++ * r12, r13 are temporaries.
++ * CF=1 iff { r1, r0 } >= { r3, r2 }
++ * ZF=1 iff { r1, r0 } == { r3, r2 }
++ */
++ENTRY(__ucmphi2)
++	movi	r13,0
++
++	mov	r12,r0
++	sub	r12,r2	;;  r12 = r0 - r2
++	bz	1f
++	movi	r13,1
++1:
++	mov	r12,r1
++	subc	r12,r3	;;  r12 = r1 - r3 - borrow
++	bnz	1f
++
++	testi	r13,0xff
++1:	ret
++#endif
++
++
++#ifdef L_ucmpsi2
++/* compare { r3, r2, r1, r0 } with { r7, r6, r5, r4 }, unsigned.
++ * r12, r13 are temporaries.
++ * CF=1 iff { r3, r2, r1, r0 } >= { r7, r6, r5, r4 }
++ * ZF=1 iff { r3, r2, r1, r0 } == { r7, r6, r5, r4 }
++ */
++ENTRY(__ucmpsi2)
++	movi	r13,0
++
++	mov	r12,r0
++	sub	r12,r4	;;  r12 = r0 - r4
++	bz	1f
++	movi	r13,1
++1:
++	mov	r12,r1
++	subc	r12,r5	;; r12 = r1 - r5 - borrow
++	bz	1f
++	movi	r13,1
++1:
++	mov	r12,r2
++	subc	r12,r6	;; r12 = r1 - r6 - borrow
++	bz	1f
++	movi	r13,1
++1:
++	mov	r12,r3
++	subc	r12,r7	;; r12 = r1 - r7 - borrow
++	bnz	1f
++
++	;; High part is zero
++
++	testi	r13,0xff
++1:	ret
++#endif
++
++#ifdef L_irq_save_restore
++ENTRY(__irq_save_restore)
++ENTRY(__irq_save_restore2)
++	ssp	r12,0
++	ssp	r13,1
++	ssp	r14,2
++	ssp	r15,3
++
++	LOAD_TEMP_SP
++
++	# Only save the non-preserved registers (The rest are going to be
++	# saved by the prologue of __IRQ and whatever it calls)
++	sspi	r0,r12
++	addi	r12,1
++	sspi	r1,r12
++	addi	r12,1
++	sspi	r2,r12
++	addi	r12,1
++	sspi	r3,r12
++	ADD_TEMP_SP(1)
++
++	sspi	r4,r12
++	addi	r12,1
++	sspi	r5,r12
++	addi	r12,1
++	sspi	r6,r12
++	addi	r12,1
++	sspi	r7,r12
++	ADD_TEMP_SP(1)
++
++#ifndef __SIXTEEN_REGS__
++#ifndef __CMODEL_LARGE__
++	sspi	r28,r12
++	addi	r12,1
++	sspi	r29,r12
++	addi	r12,1
++	sspi	r30,r12
++	addi	r12,1
++	sspi	r31,r12
++	ADD_TEMP_SP(1)
++#endif
++#endif
++
++	PUSH_SP
++
++#ifndef __CMODEL_MEDIUM__
++#ifdef __CMODEL_LARGE__
++	ADD_TEMP_SP(1)
++#endif
++	sspi	r10,r12
++	ADD_TEMP_SP(1)
++	sspi	r11,r12
++#endif
++
++	SET_SP
++
++	call __IRQ
++
++	LOAD_TEMP_SP
++
++	lspi	r0,r12
++	addi	r12,1
++	lspi	r1,r12
++	addi	r12,1
++	lspi	r2,r12
++	addi	r12,1
++	lspi	r3,r12
++	ADD_TEMP_SP(1)
++
++	lspi	r4,r12
++	addi	r12,1
++	lspi	r5,r12
++	addi	r12,1
++	lspi	r6,r12
++	addi	r12,1
++	lspi	r7,r12
++	ADD_TEMP_SP(1)
++
++#ifndef __CMODEL_LARGE__
++	lspi	r28,r12
++	addi	r12,1
++	lspi	r29,r12
++	addi	r12,1
++	lspi	r30,r12
++	addi	r12,1
++	lspi	r31,r12
++	ADD_TEMP_SP(1)
++#endif
++
++	POP_SP
++
++#ifndef __CMODEL_MEDIUM__
++#ifdef __CMODEL_LARGE__
++	ADD_TEMP_SP(1)
++#endif
++	lspi	r10,r12
++	ADD_TEMP_SP(1)
++	lspi	r11,r12
++#endif
++
++	lsp	r12,0
++	lsp	r13,1
++	lsp	r14,2
++	lsp	r15,3
++	iret
++
++	.section .irq_stack,"aw",@nobits
++	.align	2
++	.space	IRQ_STACK_SIZE
++__irq_stack:
++	.previous
++#endif
++
++#ifdef L_prologue
++#ifndef __SIXTEEN_REGS__
++#ifdef __CMODEL_LARGE__
++ENTRY(__prologue_save_r31)
++	PUSH_REG(r31)
++ENTRY(__prologue_save_r30)
++	PUSH_REG(r30)
++ENTRY(__prologue_save_r29)
++	PUSH_REG(r29)
++ENTRY(__prologue_save_r28)
++	PUSH_REG(r28)
++#endif
++
++ENTRY(__prologue_save_r27)
++	PUSH_REG(r27)
++ENTRY(__prologue_save_r26)
++	PUSH_REG(r26)
++ENTRY(__prologue_save_r25)
++	PUSH_REG(r25)
++ENTRY(__prologue_save_r24)
++	PUSH_REG(r24)
++ENTRY(__prologue_save_r23)
++	PUSH_REG(r23)
++ENTRY(__prologue_save_r22)
++	PUSH_REG(r22)
++ENTRY(__prologue_save_r21)
++	PUSH_REG(r21)
++ENTRY(__prologue_save_r20)
++	PUSH_REG(r20)
++ENTRY(__prologue_save_r19)
++	PUSH_REG(r19)
++ENTRY(__prologue_save_r18)
++	PUSH_REG(r18)
++ENTRY(__prologue_save_r17)
++	PUSH_REG(r17)
++ENTRY(__prologue_save_r16)
++	PUSH_REG(r16)
++#endif
++
++#ifdef __CMODEL_SMALL__
++ENTRY(__prologue_save_r15)
++	PUSH_REG(r15)
++#endif
++#ifdef __CMODEL_MEDIUM__
++ENTRY(__prologue_save_r14)
++	PUSH_REG(r14)
++#endif
++#ifdef __CMODEL_SMALL__
++ENTRY(__prologue_save_r13)
++	PUSH_REG(r13)
++#endif
++
++/* r12 is always temporary */
++
++#ifdef __CMODEL_MEDIUM__
++ENTRY(__prologue_save_r11)
++	PUSH_REG(r11)
++ENTRY(__prologue_save_r10)
++	PUSH_REG(r10)
++#endif
++
++#ifndef __CMODEL_MEDIUM__
++ENTRY(__prologue_save_r9)
++	PUSH_REG(r9)
++ENTRY(__prologue_save_r8)
++	PUSH_REG(r8)
++#endif
++
++	ret
++#endif
++
++#ifdef L_epilogue
++#ifndef __SIXTEEN_REGS__
++#ifdef __CMODEL_LARGE__
++ENTRY(__epilogue_restore_r31)
++	POP_REG(r31)
++ENTRY(__epilogue_restore_r30)
++	POP_REG(r30)
++ENTRY(__epilogue_restore_r29)
++	POP_REG(r29)
++ENTRY(__epilogue_restore_r28)
++	POP_REG(r28)
++#endif
++
++ENTRY(__epilogue_restore_r27)
++	POP_REG(r27)
++ENTRY(__epilogue_restore_r26)
++	POP_REG(r26)
++ENTRY(__epilogue_restore_r25)
++	POP_REG(r25)
++ENTRY(__epilogue_restore_r24)
++	POP_REG(r24)
++ENTRY(__epilogue_restore_r23)
++	POP_REG(r23)
++ENTRY(__epilogue_restore_r22)
++	POP_REG(r22)
++ENTRY(__epilogue_restore_r21)
++	POP_REG(r21)
++ENTRY(__epilogue_restore_r20)
++	POP_REG(r20)
++ENTRY(__epilogue_restore_r19)
++	POP_REG(r19)
++ENTRY(__epilogue_restore_r18)
++	POP_REG(r18)
++ENTRY(__epilogue_restore_r17)
++	POP_REG(r17)
++ENTRY(__epilogue_restore_r16)
++	POP_REG(r16)
++#endif
++
++#ifdef __CMODEL_SMALL__
++ENTRY(__epilogue_restore_r15)
++	POP_REG(r15)
++#endif
++#ifdef __CMODEL_MEDIUM__
++ENTRY(__epilogue_restore_r14)
++	POP_REG(r14)
++#endif
++#ifdef __CMODEL_SMALL__
++ENTRY(__epilogue_restore_r13)
++	POP_REG(r13)
++#endif
++
++/* r12 is always temporary */
++
++#ifdef __CMODEL_MEDIUM__
++ENTRY(__epilogue_restore_r11)
++	POP_REG(r11)
++ENTRY(__epilogue_restore_r10)
++	POP_REG(r10)
++#endif
++
++#ifndef __CMODEL_MEDIUM__
++ENTRY(__epilogue_restore_r9)
++	POP_REG(r9)
++ENTRY(__epilogue_restore_r8)
++	POP_REG(r8)
++#endif
++	ret
++#endif
++
++
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\lm8-protos.h gcc-4.4.3-lm8\gcc\config\lm8\lm8-protos.h
+--- gcc-4.4.3-org\gcc\config\lm8\lm8-protos.h	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\lm8-protos.h	Wed Apr 14 15:34:32 2010
+@@ -0,0 +1,69 @@
++/* Prototypes for exported functions defined in lm8.c
++   
++   Copyright (C) 2009, 2010 Free Software Foundation, Inc.
++
++   Contributed by Beyond Semiconductor (www.beyondsemi.com)
++
++   This file is part of GCC.
++
++   GCC is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3, or (at your option)
++   any later version.
++
++   GCC is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with GCC; see the file COPYING3.  If not see
++   <http://www.gnu.org/licenses/>.  */
++
++extern void lm8_override_options (void);
++extern void lm8_conditional_register_usage (void);
++
++extern void lm8_expand_prologue (void);
++extern void lm8_expand_epilogue (int sibcall);
++
++extern int lm8_can_eliminate(int, int);
++extern int lm8_initial_elimination_offset (int, int);
++
++#ifdef TREE_CODE
++extern void lm8_asm_declare_function_name (FILE *, char *, tree);
++
++#ifdef HAVE_MACHINE_MODES /* inside TREE_CODE */
++extern rtx lm8_function_arg (CUMULATIVE_ARGS, enum machine_mode,
++			     tree, int);
++#endif /* HAVE_MACHINE_MODES inside TREE_CODE */
++#endif /* TREE_CODE */
++
++#ifdef RTX_CODE
++extern void lm8_split_himode_move (rtx, rtx);
++extern void lm8_split_himode_spill (rtx, rtx, rtx);
++extern void lm8_split_psimode_move (rtx, rtx);
++extern void lm8_split_psimode_spill (rtx, rtx, rtx);
++extern void lm8_split_simode_move (rtx, rtx);
++extern void lm8_split_simode_spill (rtx, rtx, rtx);
++extern const char *lm8_output_arith (enum rtx_code, rtx *);
++extern const char *lm8_output_logic (enum rtx_code, rtx *);
++extern const char *lm8_output_imexport (bool, rtx *);
++
++extern void lm8_notice_update_cc (rtx, rtx);
++extern void lm8_print_operand (FILE *, rtx, int);
++extern void lm8_print_operand_address (FILE *, rtx);
++
++extern bool lm8_next_cc0_user_unsigned (rtx);
++extern bool lm8_next_cc0_user_zf (rtx);
++
++#ifdef HAVE_MACHINE_MODES /* inside RTX_CODE */
++extern bool lm8_expand_move (enum machine_mode, rtx, rtx);
++extern int lm8_legitimate_address_p (enum machine_mode, rtx, int);
++extern const char *lm8_output_compare (rtx, enum machine_mode);
++#endif /* HAVE_MACHINE_MODES inside RTX_CODE*/
++
++#endif /* RTX_CODE */
++
++#ifdef HAVE_MACHINE_MODES
++extern int lm8_hard_regno_mode_ok (int, enum machine_mode);
++#endif /* HAVE_MACHINE_MODES */
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\lm8.c gcc-4.4.3-lm8\gcc\config\lm8\lm8.c
+--- gcc-4.4.3-org\gcc\config\lm8\lm8.c	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\lm8.c	Sat Sep 25 03:01:20 2010
+@@ -0,0 +1,1840 @@
++/* Subroutines used for code generation on the Lattice Mico8 architecture.
++
++   Copyright (C) 2009, 2010 Free Software Foundation, Inc.
++
++   Contributed by Beyond Semiconductor (www.beyondsemi.com)
++
++   This file is part of GCC.
++
++   GCC is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3, or (at your option)
++   any later version.
++   
++   GCC is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++   
++   You should have received a copy of the GNU General Public License
++   along with GCC; see the file COPYING3.  If not see
++   <http://www.gnu.org/licenses/>.  */
++
++#include "config.h"
++#include "system.h"
++#include "coretypes.h"
++#include "tm.h"
++#include "rtl.h"
++#include "regs.h"
++#include "hard-reg-set.h"
++#include "real.h"
++#include "insn-config.h"
++#include "conditions.h"
++#include "insn-codes.h"
++#include "insn-attr.h"
++#include "flags.h"
++#include "reload.h"
++#include "tree.h"
++#include "output.h"
++#include "expr.h"
++#include "optabs.h"
++#include "toplev.h"
++#include "obstack.h"
++#include "function.h"
++#include "recog.h"
++#include "ggc.h"
++#include "tm_p.h"
++#include "target.h"
++#include "target-def.h"
++#include "langhooks.h"
++#include "params.h"
++#include "df.h"
++
++/* Stack frame layout we use:
++
++	+----------------------+	|
++	| Saved registers      |	| Previous stack frame
++	| Local variables      |	|
++	| Called function args |	/
++ r8'-->	|......................+
++	| Pretended func. args | __AP   \ <- slots filled by current function
++	+----------------------+	|
++    __	| Saved registers      | __     | Current stack frame
++ r10	| Local variables      |   FP   |
++	| Called function args |	/
++  r8--> +......................+
++
++*/
++
++struct lm8_frame_info
++{
++  HOST_WIDE_INT total_size;	/* number of bytes of entire frame.  */
++  HOST_WIDE_INT pretend_size;	/* number of bytes we pretend caller did.  */
++  HOST_WIDE_INT callee_size;	/* number of bytes to save callee saves.  */
++  HOST_WIDE_INT locals_size;	/* number of bytes for local variables.  */
++  HOST_WIDE_INT args_size;	/* number of bytes for outgoing arguments.  */
++  unsigned int reg_save_mask;	/* mask of saved registers.  */
++  int last_saved;	/* last saved register.  */
++};
++
++/* Current frame information calculated by lm8_compute_frame_size.  */
++static struct lm8_frame_info current_frame_info;
++
++/* Code model option.  */
++enum cmodel lm8_cmodel;
++
++static rtx (*lm8_gen_add3) (rtx, rtx, rtx);
++static rtx (*lm8_gen_sub3) (rtx, rtx, rtx);
++static rtx (*lm8_gen_call_prologue_saves) (rtx);
++static rtx (*lm8_gen_call_epilogue_restores) (rtx);
++
++enum insn_code lm8_reload_inhi, lm8_reload_insi,
++	       lm8_reload_outhi, lm8_reload_outsi;
++
++/* Prototypes for static functions.  */
++static void expand_save_restore (struct lm8_frame_info *, int);
++static void stack_adjust (HOST_WIDE_INT);
++static void lm8_setup_incoming_varargs (CUMULATIVE_ARGS *, enum machine_mode,
++					tree, int *, int);
++static int lm8_arg_partial_bytes (CUMULATIVE_ARGS *, enum machine_mode,
++				  tree, bool);
++static bool lm8_return_in_memory (const_tree, const_tree);
++static bool lm8_pass_by_reference (CUMULATIVE_ARGS *, enum machine_mode,
++				   const_tree, bool);
++static HOST_WIDE_INT lm8_compute_frame_size (int);
++static rtx lm8_subword (enum machine_mode, rtx, int);
++static enum reg_class lm8_secondary_reload (bool, rtx, enum reg_class,
++					    enum machine_mode,
++					    secondary_reload_info *);
++static void lm8_output_function_prologue (FILE *, HOST_WIDE_INT);
++static bool lm8_function_ok_for_sibcall (tree, tree);
++static bool lm8_rtx_costs (rtx, int, int, int *, bool);
++
++static void lm8_init_builtins (void);
++static rtx lm8_expand_builtin (tree, rtx, rtx, enum machine_mode, int);
++
++static tree lm8_handle_fndecl_attribute (tree *, tree, tree, int, bool *);
++
++/* Table of valid machine attributes.  */
++static const struct attribute_spec lm8_attribute_table[] =
++{
++  /* { name, min_len, max_len, decl_req, type_req, fn_type_req, handler } */
++  { "interrupt", 0, 0, true, false, false, lm8_handle_fndecl_attribute },
++  /* End element.  */
++  { NULL, 0, 0, false, false, false, NULL }
++};
++
++#undef TARGET_ASM_FUNCTION_PROLOGUE
++#define TARGET_ASM_FUNCTION_PROLOGUE lm8_output_function_prologue
++#undef TARGET_ATTRIBUTE_TABLE
++#define TARGET_ATTRIBUTE_TABLE lm8_attribute_table
++#undef TARGET_FUNCTION_OK_FOR_SIBCALL
++#define TARGET_FUNCTION_OK_FOR_SIBCALL lm8_function_ok_for_sibcall
++#undef TARGET_RETURN_IN_MEMORY
++#define TARGET_RETURN_IN_MEMORY lm8_return_in_memory
++#undef TARGET_SETUP_INCOMING_VARARGS
++#define TARGET_SETUP_INCOMING_VARARGS lm8_setup_incoming_varargs
++#undef TARGET_PASS_BY_REFERENCE
++#define TARGET_PASS_BY_REFERENCE lm8_pass_by_reference
++#undef TARGET_ARG_PARTIAL_BYTES
++#define TARGET_ARG_PARTIAL_BYTES lm8_arg_partial_bytes
++#undef TARGET_RTX_COSTS
++#define TARGET_RTX_COSTS lm8_rtx_costs
++
++#undef TARGET_SECONDARY_RELOAD
++#define TARGET_SECONDARY_RELOAD lm8_secondary_reload
++
++#undef TARGET_INIT_BUILTINS
++#define TARGET_INIT_BUILTINS lm8_init_builtins
++#undef TARGET_EXPAND_BUILTIN
++#define TARGET_EXPAND_BUILTIN lm8_expand_builtin
++
++struct gcc_target targetm = TARGET_INITIALIZER;
++  
++/* Generate and emit RTL to save or restore callee save registers.  */
++static void
++expand_save_restore (struct lm8_frame_info *info, int prologue)
++{
++  unsigned int reg_save_mask = info->reg_save_mask;
++  int regno;
++  HOST_WIDE_INT offset_dif;
++  rtx offset_dif_rtx, mem;
++  rtx rX;
++  rtx insn;
++  bool setup_emitted = false;
++
++  /* Exit early if there are no register marked to save/restore.  */
++  if (!reg_save_mask)
++    return;
++
++  /* Callee saves are above outgoing arguments and locals.  */
++  offset_dif = (current_frame_info.args_size
++		+ current_frame_info.locals_size);
++
++  /* rX must be caller saved to be used as a temp reg.  */
++  rX = gen_rtx_REG (Pmode, TMP_REGNUM);
++
++  if (TARGET_CALL_PROLOGUES)
++    {
++      if (offset_dif)
++	{
++	  insn = emit_move_insn (rX, GEN_INT (offset_dif));
++	  if (prologue)
++	    RTX_FRAME_RELATED_P (insn) = 1;
++	  insn = (*lm8_gen_add3) (rX, rX, stack_pointer_rtx);
++	  emit_insn (insn);
++	}
++      else
++	insn = emit_move_insn (rX, stack_pointer_rtx);
++
++      if (prologue)
++	RTX_FRAME_RELATED_P (insn) = 1;
++
++      gcc_assert (current_frame_info.last_saved >= 0);
++
++      regno = current_frame_info.last_saved;
++      if (prologue)
++	insn = lm8_gen_call_prologue_saves (GEN_INT (regno));
++      else
++	insn = lm8_gen_call_epilogue_restores (GEN_INT (regno));
++
++      emit_insn (insn);
++      return;
++    }
++      
++  for (regno = 0; regno <= LAST_LM8_REGNUM; regno++)
++    {
++      if (reg_save_mask & (1 << regno))
++	{
++	  /* Add offset difference to the temporary.  */
++	  if (offset_dif)
++	    {
++	      offset_dif_rtx = GEN_INT (offset_dif);
++
++	      if (setup_emitted)
++		insn = (*lm8_gen_add3) (rX, rX, offset_dif_rtx);
++	      else
++		{
++		  setup_emitted = true;
++
++		  insn = emit_move_insn (rX, offset_dif_rtx);
++		  if (prologue)
++		    RTX_FRAME_RELATED_P (insn) = 1;
++		  insn = (*lm8_gen_add3) (rX, rX, stack_pointer_rtx);
++		}
++	      emit_insn (insn);
++	      if (prologue)
++		RTX_FRAME_RELATED_P (insn) = 1;
++	      mem = gen_rtx_MEM (word_mode, rX);
++	    }
++	  /* In case there is more than one register to save/restore,
++	     initialize temporary with current SP value.  We will just
++	     add offset difference to save/restore following registers.  */
++	  else if (current_frame_info.callee_size / UNITS_PER_WORD > 1)
++	    {
++	      setup_emitted = true;
++
++	      insn = emit_move_insn (rX, stack_pointer_rtx);
++	      if (prologue)
++		RTX_FRAME_RELATED_P (insn) = 1;
++	      mem = gen_rtx_MEM (word_mode, rX);
++	    }
++	  /* One register and no offset - save/restore through SP.  */
++	  else
++	    mem = gen_rtx_MEM (word_mode, stack_pointer_rtx);
++	    	    
++	  if (prologue)
++	    insn = emit_move_insn (mem, gen_rtx_REG (word_mode, regno));
++	  else
++	    insn = emit_move_insn (gen_rtx_REG (word_mode, regno), mem);
++
++	  /* only prologue instructions which set the sp fp or save a
++	     register should be marked as frame related.  */
++	  if (prologue)
++	    RTX_FRAME_RELATED_P (insn) = 1;
++
++	  offset_dif = UNITS_PER_WORD;
++	}
++    }
++}
++
++static void
++stack_adjust (HOST_WIDE_INT amount)
++{
++  rtx insn;
++
++  insn = (*lm8_gen_add3) (stack_pointer_rtx,
++			  stack_pointer_rtx, GEN_INT (amount));
++  emit_insn (insn);
++  if (amount < 0)
++    RTX_FRAME_RELATED_P (insn) = 1;
++}
++
++/* Create and emit instructions for a functions prologue.  */
++void
++lm8_expand_prologue (void)
++{
++  rtx insn;
++  int frame_size = get_frame_size ();
++
++  lm8_compute_frame_size (frame_size);
++
++  if (current_frame_info.total_size > 0)
++    {
++      /* Add space on stack new frame.  */
++      stack_adjust (-current_frame_info.total_size);
++
++      /* Save callee save registers.  */
++      if (current_frame_info.reg_save_mask != 0)
++	expand_save_restore (&current_frame_info, 1);
++
++      /* Setup frame pointer if it's needed.  */
++      if (frame_pointer_needed)
++	{
++	  /* Frame pointer offset.  */
++	  HOST_WIDE_INT offset = (current_frame_info.locals_size
++				  + current_frame_info.args_size);
++	  if (offset)
++	    {
++	      insn = emit_move_insn (frame_pointer_rtx, GEN_INT (offset));
++	      RTX_FRAME_RELATED_P (insn) = 1;
++
++	      /* Add in sp.  */
++	      insn = (*lm8_gen_add3) (frame_pointer_rtx,
++				      frame_pointer_rtx, stack_pointer_rtx);
++	      emit_insn (insn);
++	    }
++	  else
++	    insn = emit_move_insn (frame_pointer_rtx, stack_pointer_rtx);
++
++	  RTX_FRAME_RELATED_P (insn) = 1;
++	}
++
++      /* Prevent prologue from being scheduled into function body.  */
++      emit_insn (gen_blockage ());
++    }
++}
++
++/* Create and emit instructions for a functions epilogue.  */
++void
++lm8_expand_epilogue (int sibcall)
++{
++  int frame_size = get_frame_size ();
++
++  lm8_compute_frame_size (frame_size);
++
++  if (current_frame_info.total_size > 0)
++    {
++      /* Prevent stack code from being reordered.  */
++      emit_insn (gen_blockage ());
++
++      /* Restore callee save registers.  */
++      if (current_frame_info.reg_save_mask != 0)
++	expand_save_restore (&current_frame_info, 0);
++
++      /* Deallocate stack.  */
++      stack_adjust (current_frame_info.total_size);
++    }
++
++  /* Return to calling function.  */
++  if (!sibcall)
++    emit_jump_insn (gen_return_internal ());
++}
++
++/* Return the bytes needed to compute the frame pointer
++   from the current stack pointer.  */
++static HOST_WIDE_INT
++lm8_compute_frame_size (int size)
++{
++  int regno;
++  HOST_WIDE_INT total_size, locals_size, args_size, pretend_size, callee_size;
++  unsigned int reg_save_mask;
++  unsigned int last_saved;
++
++  locals_size = size;
++  args_size = crtl->outgoing_args_size;
++  pretend_size = crtl->args.pretend_args_size;
++  callee_size = 0;
++  reg_save_mask = 0;
++  last_saved = -1;
++
++  /* Build mask that actually determines which registers we save
++     and calculate size required to store them in the stack.  */
++  for (regno = 0; regno <= LAST_LM8_REGNUM; regno++)
++    {
++      if (df_regs_ever_live_p (regno) && !call_used_regs[regno])
++	{
++	  reg_save_mask |= 1 << regno;
++	  last_saved = regno;
++	  callee_size += UNITS_PER_WORD;
++	}
++    }
++
++  if (TARGET_CALL_PROLOGUES)
++    callee_size = (last_saved - 7) * UNITS_PER_WORD;
++
++  if ((int)callee_size < 0)
++    callee_size = 0;
++
++  /* Compute total frame size.  */
++  total_size = pretend_size + args_size + locals_size + callee_size;
++
++  /* Save computed information.  */
++  current_frame_info.total_size = total_size;
++  current_frame_info.callee_size = callee_size;
++  current_frame_info.pretend_size = pretend_size;
++  current_frame_info.locals_size = locals_size;
++  current_frame_info.args_size = args_size;
++  current_frame_info.reg_save_mask = reg_save_mask;
++  current_frame_info.last_saved = last_saved;
++
++  return total_size;
++}
++
++/* All direct functions are ok for sibcall optimization.  */
++static bool
++lm8_function_ok_for_sibcall (tree decl,
++			    tree exp ATTRIBUTE_UNUSED)
++{
++  /* Never tailcall indirect functions.  */
++  if (decl == NULL)
++    return false;
++
++  return true;
++}
++
++
++/* Copy VALUE to a register and return that register.  If new psuedos
++   are allowed, copy it into a new register, otherwise use DEST.  */
++static rtx
++lm8_force_temporary (rtx dest, rtx value)
++{
++  if (can_create_pseudo_p ())
++    return force_reg (HImode, value);
++  else
++    {
++      emit_move_insn (copy_rtx (dest), value);
++      return dest;
++    }
++}
++
++/* Return a LO_SUM expression for ADDR.
++   TEMP is used to load the high part into a register.  */
++static rtx
++lm8_split_symbol (rtx temp, rtx addr)
++{
++  rtx high;
++
++  high = lm8_force_temporary (temp, gen_rtx_HIGH (HImode, copy_rtx (addr)));
++
++  return gen_rtx_LO_SUM (HImode, high, addr);
++}
++
++/* If (set DEST SRC) is not a valid instruction, emit an equivalent
++   sequence that is valid.  */
++bool
++lm8_expand_move (enum machine_mode mode, rtx dest, rtx src)
++{
++  if (!(register_operand (dest, mode)
++	|| register_operand (src, mode)))
++    {  
++      emit_move_insn (dest, force_reg (mode, src));
++      return true;
++    }
++
++  /* We need to deal with constants that would be legitimate
++     immediate_operands but not legitimate move_operands.  */
++  if (Pmode == HImode && CONSTANT_P (src) && !move_operand (src, mode))
++    {
++      emit_move_insn (dest, lm8_split_symbol (dest, src));
++      return true;
++    }
++
++  return false;
++}
++
++/* Return one word of double-word value OP, taking into account the fixed
++   endianness of certain registers.  HIGH_P is true to select the high part,
++   false to select the low part.  */
++static rtx
++lm8_subword (enum machine_mode outermode, rtx op, int word)
++{
++  unsigned int byte;
++  enum machine_mode mode;
++
++  mode = GET_MODE (op);
++  if (mode == VOIDmode)
++    mode = GET_MODE_WIDER_MODE (word_mode);
++
++  byte = word * UNITS_PER_WORD;
++
++  if (MEM_P (op)
++      && ! mode_dependent_address_p (XEXP (op, 0))
++      && GET_MODE_SIZE (outermode) <= GET_MODE_SIZE (GET_MODE (op)))
++    return adjust_address_nv (op, outermode, byte);
++
++  return simplify_gen_subreg (outermode, op, mode, byte);
++}
++
++/* Split a HImode multiword move from SRC to DEST.  This move can be
++   implemented using HIGH/LO_SUM pairs.  */
++void
++lm8_split_himode_move (rtx dest, rtx src)
++{
++  rtx low_src, low_dest;
++  rtx high_src, high_dest;
++
++  if (can_create_pseudo_p ()
++      || !(MEM_P (src) || MEM_P (dest)))
++    {
++      low_src = lm8_subword (word_mode, src, 0);
++      low_dest = lm8_subword (word_mode, dest, 0);
++
++      high_src = lm8_subword (word_mode, src, 1);
++      high_dest = lm8_subword (word_mode, dest, 1);
++
++      /* Decide in which order to emit move insns.  */
++      if (REG_P (low_dest)
++	  && reg_overlap_mentioned_p (low_dest, src))
++	{
++	  emit_move_insn (high_dest, high_src);
++	  emit_move_insn (low_dest, low_src);
++	}
++      else
++	{
++	  emit_move_insn (low_dest, low_src);
++	  emit_move_insn (high_dest, high_src);
++	}
++    }
++  else
++    {
++      rtx scratch = NULL_RTX;
++      int offset = 0;
++
++      if (MEM_P (src))
++	{
++	  scratch = XEXP (src, 0);
++
++	  if (GET_CODE (scratch) == PLUS)
++	    {
++	      offset = INTVAL (XEXP (scratch, 1));
++	      scratch = XEXP (scratch, 0);
++	    }
++
++	  gcc_assert (!reg_overlap_mentioned_p (scratch, dest));
++
++	  low_src = change_address (src, word_mode, scratch);
++	  high_src = change_address (src, word_mode, scratch);
++	}
++      else
++	{
++	  low_src = lm8_subword (word_mode, src, 0);
++	  high_src = lm8_subword (word_mode, src, 1);
++	}
++
++      if (MEM_P (dest))
++	{
++	  scratch = XEXP (dest, 0);
++
++	  if (GET_CODE (scratch) == PLUS)
++	    {
++	      offset = INTVAL (XEXP (scratch, 1));
++	      scratch = XEXP (scratch, 0);
++	    }
++
++	  gcc_assert (!reg_overlap_mentioned_p (scratch, src));
++
++	  low_dest = change_address (dest, word_mode, scratch);
++	  high_dest = change_address (dest, word_mode, scratch);
++	}
++      else
++	{
++	  low_dest = lm8_subword (word_mode, dest, 0);
++	  high_dest = lm8_subword (word_mode, dest, 1);
++	}
++
++      if (offset)
++	emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (offset)));
++
++      emit_move_insn (low_dest, low_src);
++      emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (1)));
++      emit_move_insn (high_dest, high_src);
++
++      emit_insn ((*lm8_gen_sub3) (scratch, scratch, GEN_INT (offset + 1)));
++    }
++}
++
++/* Split a SImode multiword move from SRC to DEST.  */
++void
++lm8_split_simode_move (rtx dest, rtx src)
++{
++  rtx ll_src, ll_dest;
++  rtx lh_src, lh_dest;
++  rtx hl_src, hl_dest;
++  rtx hh_src, hh_dest;
++
++  if (can_create_pseudo_p ()
++      || !(MEM_P (src) || MEM_P (dest)))
++    {
++      ll_src = lm8_subword (word_mode, src, 0);
++      ll_dest = lm8_subword (word_mode, dest, 0);
++
++      lh_src = lm8_subword (word_mode, src, 1);
++      lh_dest = lm8_subword (word_mode, dest, 1);
++
++      hl_src = lm8_subword (word_mode, src, 2);
++      hl_dest = lm8_subword (word_mode, dest, 2);
++
++      hh_src = lm8_subword (word_mode, src, 3);
++      hh_dest = lm8_subword (word_mode, dest, 3);
++
++      /* Decide in which order to emit move insns.  */
++      if (REG_P (ll_dest)
++	  && reg_overlap_mentioned_p (ll_dest, src))
++	{
++	  emit_move_insn (hh_dest, hh_src);
++	  emit_move_insn (hl_dest, hl_src);
++	  emit_move_insn (lh_dest, lh_src);
++	  emit_move_insn (ll_dest, ll_src);
++	}
++      else
++	{
++	  emit_move_insn (ll_dest, ll_src);
++	  emit_move_insn (lh_dest, lh_src);
++	  emit_move_insn (hl_dest, hl_src);
++	  emit_move_insn (hh_dest, hh_src);
++	}
++    }
++  else
++    {
++      rtx scratch = NULL_RTX;
++      int offset = 0;
++
++      if (MEM_P (src))
++	{
++	  scratch = XEXP (src, 0);
++
++	  if (GET_CODE (scratch) == PLUS)
++	    {
++	      offset = INTVAL (XEXP (scratch, 1));
++	      scratch = XEXP (scratch, 0);
++	    }
++
++	  gcc_assert (!reg_overlap_mentioned_p (scratch, dest));
++
++	  ll_src = change_address (src, word_mode, scratch);
++	  lh_src = change_address (src, word_mode, scratch);
++	  hl_src = change_address (src, word_mode, scratch);
++	  hh_src = change_address (src, word_mode, scratch);
++	}
++      else
++	{
++	  ll_src = lm8_subword (word_mode, src, 0);
++	  lh_src = lm8_subword (word_mode, src, 1);
++	  hl_src = lm8_subword (word_mode, src, 2);
++	  hh_src = lm8_subword (word_mode, src, 3);
++	}
++
++      if (MEM_P (dest))
++	{
++	  scratch = XEXP (dest, 0);
++
++	  if (GET_CODE (scratch) == PLUS)
++	    {
++	      offset = INTVAL (XEXP (scratch, 1));
++	      scratch = XEXP (scratch, 0);
++	    }
++
++	  gcc_assert (!reg_overlap_mentioned_p (scratch, src));
++
++	  ll_dest = change_address (dest, word_mode, scratch);
++	  lh_dest = change_address (dest, word_mode, scratch);
++	  hl_dest = change_address (dest, word_mode, scratch);
++	  hh_dest = change_address (dest, word_mode, scratch);
++	}
++      else
++	{
++	  ll_dest = lm8_subword (word_mode, dest, 0);
++	  lh_dest = lm8_subword (word_mode, dest, 1);
++	  hl_dest = lm8_subword (word_mode, dest, 2);
++	  hh_dest = lm8_subword (word_mode, dest, 3);
++	}
++
++      if (offset)
++	emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (offset)));
++
++      emit_move_insn (ll_dest, ll_src);
++      emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (1)));
++      emit_move_insn (lh_dest, lh_src);
++      emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (1)));
++      emit_move_insn (hl_dest, hl_src);
++      emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (1)));
++      emit_move_insn (hh_dest, hh_src);
++
++      emit_insn ((*lm8_gen_sub3) (scratch, scratch, GEN_INT (offset + 3)));
++    }
++}
++
++/* Split a HImode multiword spill from SRC to DEST.  */
++void
++lm8_split_himode_spill (rtx dest, rtx src, rtx scratch)
++{
++  rtx low_src, low_dest;
++  rtx high_src, high_dest;
++
++  rtx addr;
++
++  if (MEM_P (src))
++    {
++      /* Unfortunatelly, gcc does not check if the destination reg
++	 of an input reload overlaps with scratch register.  Re-use
++	 address register in this case to split reload.  */
++      if (reg_overlap_mentioned_p (scratch, dest))
++	{
++	  lm8_split_himode_move (dest, src);
++	  return;
++	}
++
++      addr = XEXP (src, 0);
++
++      high_src = change_address (src, word_mode, scratch);
++      low_src = change_address (src, word_mode, scratch);
++
++      high_dest = lm8_subword (word_mode, dest, 1);
++      low_dest = lm8_subword (word_mode, dest, 0);
++    }
++  else if (MEM_P (dest))
++    {
++      addr = XEXP (dest, 0);
++
++      high_dest = change_address (dest, word_mode, scratch);
++      low_dest = change_address (dest, word_mode, scratch);
++
++      high_src = lm8_subword (word_mode, src, 1);
++      low_src = lm8_subword (word_mode, src, 0);
++    }
++  else
++    gcc_unreachable ();
++
++  if (GET_CODE (addr) == PLUS)
++    {
++      emit_move_insn (scratch, XEXP (addr, 0));
++      emit_insn ((*lm8_gen_add3) (scratch, scratch, XEXP (addr, 1)));
++    }
++  else
++    emit_move_insn (scratch, addr);
++
++  emit_move_insn (low_dest, low_src);
++  emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (1)));
++  emit_move_insn (high_dest, high_src);
++}
++
++/* Split a SImode multiword spill from SRC to DEST.  */
++void
++lm8_split_simode_spill (rtx dest, rtx src, rtx scratch)
++{
++  rtx ll_src, ll_dest;
++  rtx lh_src, lh_dest;
++  rtx hl_src, hl_dest;
++  rtx hh_src, hh_dest;
++
++  rtx addr;
++
++  if (MEM_P (src))
++    {
++      /* Unfortunatelly, gcc does not check if the destination reg
++	 of an input reload overlaps with scratch register.  Re-use
++	 address register in this case to split reload.  */
++      if (reg_overlap_mentioned_p (scratch, dest))
++	{
++	  lm8_split_simode_move (dest, src);
++	  return;
++	}
++
++      addr = XEXP (src, 0);
++
++      ll_src = change_address (src, word_mode, scratch);
++      lh_src = change_address (src, word_mode, scratch);
++      hl_src = change_address (src, word_mode, scratch);
++      hh_src = change_address (src, word_mode, scratch);
++
++      ll_dest = lm8_subword (word_mode, dest, 0);
++      lh_dest = lm8_subword (word_mode, dest, 1);
++      hl_dest = lm8_subword (word_mode, dest, 2);
++      hh_dest = lm8_subword (word_mode, dest, 3);
++    }
++  else if (MEM_P (dest))
++    {
++      addr = XEXP (dest, 0);
++
++      ll_dest = change_address (dest, word_mode, scratch);
++      lh_dest = change_address (dest, word_mode, scratch);
++      hl_dest = change_address (dest, word_mode, scratch);
++      hh_dest = change_address (dest, word_mode, scratch);
++
++      ll_src = lm8_subword (word_mode, src, 0);
++      lh_src = lm8_subword (word_mode, src, 1);
++      hl_src = lm8_subword (word_mode, src, 2);
++      hh_src = lm8_subword (word_mode, src, 3);
++    }
++  else
++    gcc_unreachable ();
++
++  if (GET_CODE (addr) == PLUS)
++    {
++      emit_move_insn (scratch, XEXP (addr, 0));
++      emit_insn ((*lm8_gen_add3) (scratch, scratch, XEXP (addr, 1)));
++    }
++  else
++    emit_move_insn (scratch, addr);
++
++  emit_move_insn (ll_dest, ll_src);
++  emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (1)));
++  emit_move_insn (lh_dest, lh_src);
++  emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (1)));
++  emit_move_insn (hl_dest, hl_src);
++  emit_insn ((*lm8_gen_add3) (scratch, scratch, GEN_INT (1)));
++  emit_move_insn (hh_dest, hh_src);
++}
++
++/* Implement TARGET_SECONDARY_RELOAD to handle multiword spills.  */
++enum reg_class
++lm8_secondary_reload (bool in_p,
++		      rtx x ATTRIBUTE_UNUSED,
++		      enum reg_class cla ATTRIBUTE_UNUSED,
++		      enum machine_mode mode,
++		      secondary_reload_info *sri)
++{ 
++  if (MEM_P (x))
++    switch (mode)
++      {
++      default:
++	break;
++      case HImode:
++	sri->icode = in_p ? lm8_reload_inhi : lm8_reload_outhi;
++	break;
++      case SImode:
++	sri->icode = in_p ? lm8_reload_insi : lm8_reload_outsi;
++	break;
++      }
++
++  return NO_REGS;
++}
++
++/* Returns 1 if a value of mode MODE can be stored starting with hard
++   register number REGNO.  */
++int
++lm8_hard_regno_mode_ok (int regno, enum machine_mode mode)
++{
++  /* The only thing that can go into FRAME_POINTER is a Pmode.  */
++  if (regno == FRAME_POINTER_REGNUM && mode == Pmode)
++    return 1;
++
++  /* Otherwise disallow all regno/mode combinations that span F_P.  */
++  if (regno < FRAME_POINTER_REGNUM
++      && (regno + GET_MODE_SIZE (mode)) > FRAME_POINTER_REGNUM)
++    return 0;
++
++  if (mode == QImode)
++    return 1;
++
++  if (regno >= FRAME_POINTER_REGNUM
++      && regno < (FRAME_POINTER_REGNUM + GET_MODE_SIZE (Pmode)))
++    return 0;
++
++  /* Modes larger than QImode occupy consecutive registers.  */
++  if (regno + GET_MODE_SIZE (mode) > FIRST_PSEUDO_REGISTER)
++    return 0;
++
++  return 1;
++}
++
++/* Output arithmetic instruction sequence.  */
++const char *
++lm8_output_arith (enum rtx_code code, rtx *operands)
++{
++  enum machine_mode mode = GET_MODE (operands[0]);
++  int size = GET_MODE_SIZE (mode);
++  char insn[16];
++  char op[8];
++  const char *op1;
++  char buf[] = "\t%_0,%_2";
++  int i;
++
++  switch (code)
++    {
++    case PLUS:
++      op1 = "add"; break;
++    case MINUS:
++      op1 = "sub"; break;
++    default:
++      gcc_unreachable ();
++    }
++  strcpy (op, op1);
++  if (which_alternative)
++    strcat (op, "i");
++
++  for (i = 0; i < size; i++)
++    {
++      strcpy (insn, op);
++      if (i)
++	strcat (insn, "c");
++      buf[2] = buf[6] = 'A' + (char) i;
++      strcat (insn, buf);
++      output_asm_insn (insn, operands);
++    }
++
++  return "";
++}
++
++/* Output logic instruction sequence.  */
++const char *
++lm8_output_logic (enum rtx_code code, rtx *operands)
++{
++  enum machine_mode mode = GET_MODE (operands[0]);
++  int size = GET_MODE_SIZE (mode);
++  char insn[16];
++  char op[8];
++  const char *op1;
++  char buf[] = "\t%_0,%_2";
++  int i;
++
++  switch (code)
++    {
++    case AND:
++      op1 = "and"; break;
++    case IOR:
++      op1 = "or"; break;
++    case XOR:
++      op1 = "xor"; break;
++    default:
++      gcc_unreachable ();
++    }
++  strcpy (op, op1);
++  if (which_alternative)
++    strcat (op, "i");
++
++  for (i = 0; i < size; i++)
++    {
++      strcpy (insn, op);
++      buf[2] = buf[6] = 'A' + (char) i;
++      strcat (insn, buf);
++      output_asm_insn (insn, operands);
++    }
++
++  return "";
++}
++
++/* Return true if next cc0 user uses unsigned comparison.  */
++bool
++lm8_next_cc0_user_unsigned (rtx insn)
++{
++  rtx cc0_user;
++  rtx body;
++  rtx set;
++  enum rtx_code code;
++
++  cc0_user = next_cc0_user (insn);
++
++  body = PATTERN (cc0_user);
++  set = single_set (cc0_user);
++
++  /* Users can be sCC and bCC.  */
++  if (JUMP_P (cc0_user)
++      && GET_CODE (body) == SET
++      && SET_DEST (body) == pc_rtx
++      && GET_CODE (SET_SRC (body)) == IF_THEN_ELSE
++      && XEXP (XEXP (SET_SRC (body), 0), 0) == cc0_rtx)
++    code = GET_CODE (XEXP (SET_SRC (body), 0));
++  else if (set)
++    code = GET_CODE (SET_SRC (body));
++  else
++    gcc_unreachable ();
++
++  if (code == GT || code == GE || code == LT || code == LE)
++    return false;
++
++  return true;
++}
++
++/* Return true if next cc0 user uses zero flag comparison.  */
++bool
++lm8_next_cc0_user_zf (rtx insn)
++{
++  rtx cc0_user;
++  rtx body;
++  rtx set;
++  enum rtx_code code;
++
++  cc0_user = next_cc0_user (insn);
++
++  body = PATTERN (cc0_user);
++  set = single_set (cc0_user);
++
++  /* Users can be sCC and bCC.  */
++  if (JUMP_P (cc0_user)
++      && GET_CODE (body) == SET
++      && SET_DEST (body) == pc_rtx
++      && GET_CODE (SET_SRC (body)) == IF_THEN_ELSE
++      && XEXP (XEXP (SET_SRC (body), 0), 0) == cc0_rtx)
++    code = GET_CODE (XEXP (SET_SRC (body), 0));
++  else if (set)
++    code = GET_CODE (SET_SRC (body));
++  else
++    gcc_unreachable ();
++
++  if (code == EQ || code == NE)
++    return true;
++
++  return false;
++}
++
++/* Output compare sequence.  */
++const char *
++lm8_output_compare (rtx insn, enum machine_mode mode)
++{
++  if (lm8_next_cc0_user_unsigned (insn))
++    switch (mode)
++      {
++      case QImode:
++	return "cmp\tr0,r1";
++      case HImode:
++	return "call\t__ucmphi2";
++      case SImode:
++	return "call\t__ucmpsi2";
++      default:
++	gcc_unreachable ();
++      }
++  else
++    switch (mode)
++      {
++      case QImode:
++	return "call\t__cmpqi2";
++      case HImode:
++	return "call\t__cmphi2";
++      case SImode:
++	return "call\t__cmpsi2";
++      default:
++	gcc_unreachable ();
++      }
++}
++
++/* Output import/export instruction sequence.  */
++const char *
++lm8_output_imexport (bool export_insn, rtx *operands)
++{
++  int size = GET_MODE_SIZE (Pmode);
++  char insn[16];
++  char op[8];
++  char buf[] = "\tr1_,%_1";
++  int i;
++  
++  strcpy (op, "mov");
++  if (which_alternative)
++    strcat (op, "i");
++
++  for (i = size-1; i; i--)
++    {
++      strcpy (insn, op);
++      buf[3] = '2' + (char) i;
++      buf[6] = 'A' + (char) i;
++      strcat (insn, buf);
++      output_asm_insn (insn, operands);
++    }
++
++  strcpy (insn, export_insn ? "export" : "import");
++  if (!which_alternative)
++    strcat (insn, "i");
++
++  strcat (insn, "\t%0,%A1");
++  output_asm_insn (insn, operands);
++
++  return "";
++}
++
++/* Override command line options.  */
++void
++lm8_override_options (void)
++{
++  if (lm8_cmodel_string != 0)
++    {
++      if (!strcmp (lm8_cmodel_string, "small"))
++	lm8_cmodel = CM_SMALL;
++      else if (!strcmp (lm8_cmodel_string, "medium"))
++	lm8_cmodel = CM_MEDIUM;
++      else if (!strcmp (lm8_cmodel_string, "large"))
++	lm8_cmodel = CM_LARGE;
++      else
++	error ("bad value (%s) for -mcmodel switch", lm8_cmodel_string);
++    }
++  else
++    lm8_cmodel = CM_MEDIUM;
++
++  if (TARGET_SIXTEEN_REGS && lm8_cmodel == CM_LARGE)
++    error ("-m16regs is incompatible with LARGE code model.");
++
++  switch (Pmode)
++    {
++    case QImode:
++      lm8_gen_add3 = gen_addqi3;
++      lm8_gen_sub3 = gen_subqi3;
++      lm8_gen_call_prologue_saves = gen_call_prologue_saves_qi;
++      lm8_gen_call_epilogue_restores = gen_call_epilogue_restores_qi;
++      lm8_reload_inhi = CODE_FOR_reload_inhi_qi;
++      lm8_reload_insi = CODE_FOR_reload_insi_qi;
++      lm8_reload_outhi = CODE_FOR_reload_outhi_qi;
++      lm8_reload_outsi = CODE_FOR_reload_outsi_qi;
++      break;
++
++    case HImode:
++      lm8_gen_add3 = gen_addhi3;
++      lm8_gen_sub3 = gen_subhi3;
++      lm8_gen_call_prologue_saves = gen_call_prologue_saves_hi;
++      lm8_gen_call_epilogue_restores = gen_call_epilogue_restores_hi;
++      lm8_reload_inhi = CODE_FOR_reload_inhi_hi;
++      lm8_reload_insi = CODE_FOR_reload_insi_hi;
++      lm8_reload_outhi = CODE_FOR_reload_outhi_hi;
++      lm8_reload_outsi = CODE_FOR_reload_outsi_hi;
++      break;
++
++    case SImode:
++      lm8_gen_add3 = gen_addsi3;
++      lm8_gen_sub3 = gen_subsi3;
++      lm8_gen_call_prologue_saves = gen_call_prologue_saves_si;
++      lm8_gen_call_epilogue_restores = gen_call_epilogue_restores_si;
++      lm8_reload_inhi = CODE_FOR_reload_inhi_si;
++      lm8_reload_insi = CODE_FOR_reload_insi_si;
++      lm8_reload_outhi = CODE_FOR_reload_outhi_si;
++      lm8_reload_outsi = CODE_FOR_reload_outsi_si;
++      break;
++
++    default:
++      gcc_unreachable ();
++    }
++}
++
++/* Update register usage after having seen the compiler flags.  */
++void
++lm8_conditional_register_usage (void)
++{
++  int i;
++
++  for (i = 0; i < LM8_NUM_REGS (Pmode); i++)
++    {
++      call_used_regs[SP_REGNUM + i] = fixed_regs [SP_REGNUM + i] = 1;
++      call_used_regs[TMP_REGNUM + i] = 1;
++    }
++
++  switch (LM8_NUM_REGS (Pmode))
++    {
++    default:
++      gcc_unreachable ();
++
++    case 4:
++      call_used_regs[R15_REGNUM] = fixed_regs [R15_REGNUM] = 1;
++      call_used_regs[R14_REGNUM] = fixed_regs [R14_REGNUM] = 1;
++      /* fallthru */
++
++    case 2:
++      call_used_regs[R13_REGNUM] = fixed_regs [R13_REGNUM] = 1;
++
++    case 1:
++      ;
++    }
++
++  /* Mark other possible eliminable registers as call-used.
++     For some reason, register allocator marks them as ever live,
++     and without this hack, prologue saves them to stack.  */
++  switch (Pmode)
++    {
++    case QImode:
++      call_used_regs [FP_REGNUM_MEDIUM] = 1;
++      call_used_regs [FP_REGNUM_MEDIUM+1] = 1;
++      call_used_regs [FP_REGNUM_LARGE] = 1;
++      call_used_regs [FP_REGNUM_LARGE+1] = 1;
++      call_used_regs [FP_REGNUM_LARGE+2] = 1;
++      call_used_regs [FP_REGNUM_LARGE+3] = 1;
++      break;
++    case HImode:
++      call_used_regs [FP_REGNUM_SMALL] = 1;
++      call_used_regs [FP_REGNUM_LARGE] = 1;
++      call_used_regs [FP_REGNUM_LARGE+1] = 1;
++      call_used_regs [FP_REGNUM_LARGE+2] = 1;
++      call_used_regs [FP_REGNUM_LARGE+3] = 1;
++      break;
++    case SImode:
++      call_used_regs [FP_REGNUM_SMALL] = 1;
++      call_used_regs [FP_REGNUM_MEDIUM] = 1;
++      call_used_regs [FP_REGNUM_MEDIUM+1] = 1;
++      break;
++    default:
++      gcc_unreachable ();
++    }
++    
++  /* Disable not-implemented registers here.  */
++  if (TARGET_SIXTEEN_REGS)
++    for (i = 16; i <= 31; i++)
++      fixed_regs[i] = call_used_regs[i] = 1;
++}
++
++/* Given FROM and TO register numbers, say whether this elimination is
++   allowed.  If stack alignment is needed, we can only replace argument
++   pointer with hard frame pointer, or replace frame pointer with stack
++   pointer.  Otherwise, frame pointer elimination is automatically
++   handled and all other eliminations are valid.  */
++int
++lm8_can_eliminate (const int from, const int to)
++{
++  if (from == ARG_POINTER_REGNUM)
++    {
++      if (to == STACK_POINTER_REGNUM)
++	return !frame_pointer_needed;
++
++      if (to == FRAME_POINTER_REGNUM)
++	return 1;
++    }
++
++  if (from == FRAME_POINTER_REGNUM
++      || (GET_MODE_SIZE (Pmode) > 0
++	  && from == FRAME_POINTER_REGNUM+1)
++      || (GET_MODE_SIZE (Pmode) > 2
++	  && (from == FRAME_POINTER_REGNUM+2
++	      || from == FRAME_POINTER_REGNUM+3)))
++    return !frame_pointer_needed;
++
++  return 0;
++}
++
++/* Return the offset between two registers, one to be eliminated,
++   and the other its replacement, at the start of a routine.  */
++int
++lm8_initial_elimination_offset (int from, int to)
++{
++  HOST_WIDE_INT offset = 0;
++  int frame_size = get_frame_size ();
++
++  lm8_compute_frame_size (frame_size);
++
++  switch (from)
++    {
++    case ARG_POINTER_REGNUM:
++      if (to == SP_REGNUM_SMALL
++	  || to == SP_REGNUM_MEDIUM
++	  || to == SP_REGNUM_LARGE)
++	offset = (current_frame_info.total_size
++		  -current_frame_info.pretend_size);
++      else if (to == FP_REGNUM_SMALL
++	       || to == FP_REGNUM_MEDIUM
++	       || to == FP_REGNUM_LARGE)
++	offset = current_frame_info.callee_size;
++      else
++	gcc_unreachable ();
++      break;
++  
++    case FP_REGNUM_SMALL:
++    case FP_REGNUM_MEDIUM:
++    case FP_REGNUM_MEDIUM+1:
++    case FP_REGNUM_LARGE:
++    case FP_REGNUM_LARGE+1:
++    case FP_REGNUM_LARGE+2:
++    case FP_REGNUM_LARGE+3:
++       if (to == SP_REGNUM_SMALL
++	   || to == SP_REGNUM_MEDIUM
++	   || to == SP_REGNUM_MEDIUM+1
++	   || to == SP_REGNUM_LARGE
++	   || to == SP_REGNUM_LARGE+1
++	   || to == SP_REGNUM_LARGE+2
++	   || to == SP_REGNUM_LARGE+3)
++	offset = (current_frame_info.locals_size
++		  + current_frame_info.args_size);
++      else
++	gcc_unreachable ();
++      break;
++
++    default:
++      gcc_unreachable ();
++    }
++
++  return offset;
++}
++
++/* Implement TARGET_LEGITIMATE_ADDRESS_P.  */
++int
++lm8_legitimate_address_p (enum machine_mode mode ATTRIBUTE_UNUSED,
++			  rtx x, int strict)
++{
++   /* (rM) */
++  if (!REG_P (x))
++    return false;
++  if ((strict && STRICT_REG_OK_FOR_BASE_P (x))
++      || (!strict && NONSTRICT_REG_OK_FOR_BASE_P (x)))
++    return true;
++
++  return false;
++}
++
++/* Update the condition code in the INSN.  */
++void
++lm8_notice_update_cc (rtx body ATTRIBUTE_UNUSED, rtx insn)
++{
++  rtx set;
++  
++  switch (get_attr_cc (insn))
++    {
++    case CC_NONE:
++      /* Insn does not affect CC at all.  */
++      break;
++
++    case CC_SET_Z:
++      set = single_set (insn);
++      CC_STATUS_INIT;
++      if (set)
++	{
++	  cc_status.flags |= CC_NOT_SIGNED | CC_NO_OVERFLOW;
++	  cc_status.value1 = SET_DEST (set);
++	}
++      break;
++
++    case CC_SET_CZ:
++      set = single_set (insn);
++      CC_STATUS_INIT;
++      if (set)
++	{
++	  cc_status.flags |= CC_NOT_SIGNED;
++	  cc_status.value1 = SET_DEST (set);
++	}
++      break;
++
++    case CC_COMPARE:
++      set = single_set (insn);
++      CC_STATUS_INIT;
++      if (set)
++	{
++	  cc_status.flags |= CC_NOT_SIGNED;
++	  cc_status.value1 = SET_SRC (set);
++	}
++      break;
++      
++    case CC_CLOBBER:
++      /* Insn doesn't leave CC in a usable state.  */
++      CC_STATUS_INIT;
++      break;
++    }
++}
++
++void
++lm8_print_operand (FILE * file, rtx op, int letter)
++{
++  enum rtx_code code;
++  int abcd;
++
++  if (letter >= 'A' && letter <= 'D')
++    abcd = letter - 'A';
++  else
++    abcd = -1;
++
++  code = GET_CODE (op);
++
++  if (letter == 'p')
++    {
++      int reg;
++
++      gcc_assert (code == MEM);
++      reg = REGNO (XEXP (op, 0));
++
++      switch (LM8_NUM_REGS (Pmode))
++	{
++	case 4:
++	  if (reg+2 != 14)
++	    {
++	      fprintf (file, "mov\tr15,%s\t# R15 update\n\t",
++		       reg_names[reg+3]);
++	      fprintf (file, "mov\tr14,%s\t# R14 update\n\t",
++		       reg_names[reg+2]);
++	    }
++	  /* FALLTHRU */
++	case 2:
++	  if (reg+1 != 13)
++	    fprintf (file, "mov\tr13,%s\t# R13 update\n\t",
++		     reg_names[reg+1]);
++	  /* FALLTHRU */
++	case 1:
++	  break;
++
++	default:
++	  gcc_unreachable ();
++	}
++      return;
++    }
++
++  if (code == REG)
++    {
++      int reg = REGNO (op);
++
++      if (abcd > 0)
++	reg += abcd;
++
++      fprintf (file, "%s", reg_names[reg]);
++    }
++  else if (code == MEM)
++    output_address (XEXP (op, 0));
++  else
++    {
++      switch (abcd)
++	{
++	case -1:
++	  output_addr_const (file, op);
++	  return;
++
++	case 0: fputs ("_lo(", file); break;
++	case 1: fputs ("_hi(", file); break;
++	case 2: fputs ("_higher(", file); break;
++	case 3: fputs ("_highest(", file); break;
++	default:
++	  gcc_unreachable ();
++	}
++      output_addr_const (file, op);
++      fputc (')', file);
++    }
++}
++
++/* A C compound statement to output to stdio stream STREAM the
++   assembler syntax for an instruction operand that is a memory
++   reference whose address is ADDR.  ADDR is an RTL expression.
++
++   On some machines, the syntax for a symbolic address depends on
++   the section that the address refers to.  On these machines,
++   define the macro `ENCODE_SECTION_INFO' to store the information
++   into the `symbol_ref', and then check for it here.  */
++void
++lm8_print_operand_address (FILE * file, rtx addr)
++{
++  switch (GET_CODE (addr))
++    {
++    case REG:
++      fprintf (file, "%s", reg_names[REGNO (addr)]);
++      break;
++
++    case MEM:
++      output_address (XEXP (addr, 0));
++      break;
++
++    default:
++      fatal_insn ("invalid addressing mode", addr);
++      break;
++    }
++}
++
++/* Write the extra assembler code needed to declare
++   a function properly.  */
++void lm8_asm_declare_function_name (FILE * file, char * name, tree decl)
++{
++  ASM_OUTPUT_TYPE_DIRECTIVE (file, name, "function");
++
++  if (lookup_attribute ("interrupt", DECL_ATTRIBUTES (decl)))
++    ASM_OUTPUT_TYPE_DIRECTIVE (file, "__irq_save_restore", "function");
++
++  ASM_DECLARE_RESULT (file, DECL_RESULT (decl));
++  ASM_OUTPUT_LABEL (file, name);
++}
++
++/* Determine where to put an argument to a function.
++   Value is zero to push the argument on the stack,
++   or a hard register in which to store the argument.
++
++   MODE is the argument's machine mode.
++   TYPE is the data type of the argument (as a tree).
++    This is null for libcalls where that information may
++    not be available.
++   CUM is a variable of type CUMULATIVE_ARGS which gives info about
++    the preceding args and about the function being called.
++   NAMED is nonzero if this argument is a named parameter
++    (otherwise it is an extra parameter matching an ellipsis).  */
++rtx
++lm8_function_arg (CUMULATIVE_ARGS cum, enum machine_mode mode,
++		  tree type, int named)
++{
++  if (mode == VOIDmode)
++    /* Compute operand 2 of the call insn.  */
++    return GEN_INT (0);
++
++  if (targetm.calls.must_pass_in_stack (mode, type))
++    return NULL_RTX;
++
++  if (named && cum < LM8_NUM_ARG_REGS)
++    return gen_rtx_REG (mode, LM8_FIRST_ARG_REG + cum);
++
++  return NULL_RTX;
++}
++
++/* Add a comment describing frame parameters into
++   the instruction stream.  */
++static void
++lm8_output_function_prologue (FILE *f,
++			      HOST_WIDE_INT frame_size ATTRIBUTE_UNUSED)
++{
++  lm8_compute_frame_size (frame_size);
++
++  asm_fprintf (f, "\t# pretend_size = %wd, callee_size = %wd\n",
++	       current_frame_info.pretend_size,
++	       current_frame_info.callee_size);
++  asm_fprintf (f, "\t# locals_size = %wd, args_size = %wd\n",
++	       current_frame_info.locals_size,
++	       current_frame_info.args_size);
++  asm_fprintf (f, "\t# total_size = %wd, reg_save_mask = %#x\n",
++	       current_frame_info.total_size,
++	       current_frame_info.reg_save_mask);
++}
++
++/* Small structures are returned in a return register quad,
++   others are passed through invisible first argument.  */
++
++static bool
++lm8_return_in_memory (const_tree type, const_tree fndecl ATTRIBUTE_UNUSED)
++{
++  return ((int_size_in_bytes (type) > 4 * UNITS_PER_WORD)
++	  || (int_size_in_bytes (type) == -1));
++}
++
++/* Perform any needed actions needed for a function that is
++   receiving a variable number of arguments.  */
++static void
++lm8_setup_incoming_varargs (CUMULATIVE_ARGS *cum, enum machine_mode mode,
++			    tree type, int *pretend_size, int no_rtl)
++{
++  int first_anon_arg;
++  tree fntype;
++  int stdarg_p;
++
++  fntype = TREE_TYPE (current_function_decl);
++  stdarg_p = (TYPE_ARG_TYPES (fntype) != 0
++	      && (TREE_VALUE (tree_last (TYPE_ARG_TYPES (fntype)))
++		  != void_type_node));
++
++  if (stdarg_p)
++    first_anon_arg = *cum + LM8_FIRST_ARG_REG;
++  else
++    {
++      /* this is the common case, we have been passed details setup
++	 for the last named argument, we want to skip over the
++	 registers, if any used in passing this named paramter in
++	 order to determine which is the first registers used to pass
++	 anonymous arguments.  */
++      int size;
++
++      if (mode == BLKmode)
++	size = int_size_in_bytes (type);
++      else
++	size = GET_MODE_SIZE (mode);
++
++      first_anon_arg =
++	*cum + LM8_FIRST_ARG_REG +
++	((size + UNITS_PER_WORD - 1) / UNITS_PER_WORD);
++    }
++
++  if (no_rtl)
++    return;
++
++  if (first_anon_arg < (LM8_FIRST_ARG_REG + LM8_NUM_ARG_REGS))
++    {
++      int first_reg_offset = first_anon_arg;
++      int size = LM8_FIRST_ARG_REG + LM8_NUM_ARG_REGS - first_anon_arg;
++      rtx regblock;
++
++      regblock = gen_rtx_MEM (BLKmode,
++			      plus_constant (arg_pointer_rtx,
++					     FIRST_PARM_OFFSET (0)));
++      move_block_from_reg (first_reg_offset, regblock, size);
++
++      *pretend_size = size * UNITS_PER_WORD;
++    }
++}
++
++/* Small structures are passed in registers, other
++   variable sized types are passed by reference.  */
++static bool
++lm8_pass_by_reference (CUMULATIVE_ARGS *cum ATTRIBUTE_UNUSED,
++		       enum machine_mode mode ATTRIBUTE_UNUSED,
++		       const_tree type, bool named ATTRIBUTE_UNUSED)
++{
++  if (!type)
++    return 0;
++
++  return int_size_in_bytes (type) > 4 * UNITS_PER_WORD;
++}
++
++/* Split multi-word function argument that crosses the boundary to
++   register passing and stack passing part.  */
++static int
++lm8_arg_partial_bytes (CUMULATIVE_ARGS *cum, enum machine_mode mode,
++		       tree type, bool named ATTRIBUTE_UNUSED)
++{
++  if (*cum < LM8_NUM_ARG_REGS
++      && (*cum + LM8_NUM_REGS2 (mode, type)) > LM8_NUM_ARG_REGS)
++    return (LM8_NUM_ARG_REGS - *cum) * UNITS_PER_WORD;
++
++  return 0;
++}
++
++/* Codes for all the LM8 builtins.  */
++enum lm8_builtins
++{
++  LM8_BUILTIN_IMPORT,
++  LM8_BUILTIN_EXPORT
++};
++
++/* Classifies the prototype of a builtin function.  */
++enum lm8_function_type
++{
++  LM8_QI_FTYPE_SIZE,
++  LM8_VOID_FTYPE_QI_SIZE,
++
++  /* The last type.  */
++  LM8_MAX_FTYPE_MAX
++};
++
++/* Specifies how a builtin function should be converted into rtl.  */
++enum lm8_builtin_type
++{
++  /* The builtin corresponds directly to an .md pattern.  The return
++     value is mapped to operand 0 and the arguments are mapped to
++     operands 1 and above.  */
++  LM8_BUILTIN_DIRECT,
++
++  /* The builtin corresponds directly to an .md pattern.  There is no return
++     value and the arguments are mapped to operands 0 and above.  */
++  LM8_BUILTIN_DIRECT_NO_TARGET
++};
++
++/* LM8 builtin function support. */
++struct builtin_description
++{
++  /* The name of the builtin function.  */
++  const char *name;
++
++  /* Corresponding function code. */
++  const enum lm8_builtins code;
++
++  /* Specifies how the function should be expanded.  */
++  const enum lm8_builtin_type builtin_type;
++
++  /* The function's prototype.  */
++  const enum lm8_function_type function_type;
++};
++
++/* Define a LM8_BUILTIN_DIRECT_function.  */
++#define DIRECT_BUILTIN(INSN, CODE, FUNCTION_TYPE)		\
++  { "__builtin_" #INSN, CODE, LM8_BUILTIN_DIRECT, FUNCTION_TYPE }
++
++
++/* Define a LM8_BUILTIN_DIRECT_NO_TARGET function.  */
++#define DIRECT_NO_TARGET_BUILTIN(INSN, CODE, FUNCTION_TYPE)		\
++  { "__builtin_" #INSN, CODE, LM8_BUILTIN_DIRECT_NO_TARGET, FUNCTION_TYPE }
++
++static const struct builtin_description lm8_bdesc[] =
++{
++  DIRECT_BUILTIN (import, LM8_BUILTIN_IMPORT, LM8_QI_FTYPE_SIZE),
++  DIRECT_NO_TARGET_BUILTIN (export, LM8_BUILTIN_EXPORT, LM8_VOID_FTYPE_QI_SIZE)
++};
++
++/* Init builtin functions.  This is called from TARGET_INIT_BUILTIN.  */
++static void
++lm8_init_builtins (void)
++{
++  const struct builtin_description *d;
++  size_t i;
++  tree types[(int) LM8_MAX_FTYPE_MAX];
++
++  types[LM8_QI_FTYPE_SIZE]
++    = build_function_type_list (char_type_node,
++				size_type_node,
++				NULL_TREE);
++  types[LM8_VOID_FTYPE_QI_SIZE]
++    = build_function_type_list (void_type_node,
++				char_type_node, size_type_node,
++				NULL_TREE);
++
++  for (i = 0, d = lm8_bdesc;
++       i < ARRAY_SIZE (lm8_bdesc);
++       i++, d++)
++    add_builtin_function (d->name, types[d->function_type], d->code,
++			  BUILT_IN_MD, NULL, NULL_TREE);
++}
++
++/* Take argument ARGNO from EXP's argument list and convert it into a
++   form suitable for input operand OPNO of instruction ICODE.  Return the
++   value.  */
++static rtx
++lm8_prepare_builtin_arg (enum insn_code icode,
++			 unsigned int opno, tree exp, unsigned int argno)
++{
++  tree arg;
++  rtx value;
++  enum machine_mode mode;
++
++  arg = CALL_EXPR_ARG (exp, argno);
++  value = expand_normal (arg);
++  mode = insn_data[icode].operand[opno].mode;
++  if (!insn_data[icode].operand[opno].predicate (value, mode))
++    {
++      value = copy_to_mode_reg (TYPE_MODE (TREE_TYPE (arg)), value);
++
++      /* Check the predicate again.  */
++      if (!insn_data[icode].operand[opno].predicate (value, mode))
++	{
++	  error ("invalid argument to builtin function");
++	  return const0_rtx;
++	}
++    }
++
++  return value;
++}
++
++/* Return an rtx suitable for output operand OP of instruction ICODE.
++   If TARGET is non-null, try to use it where possible.  */
++static rtx
++lm8_prepare_builtin_target (enum insn_code icode, unsigned int op, rtx target)
++{
++  enum machine_mode mode;
++
++  mode = insn_data[icode].operand[op].mode;
++  if (target == 0 || !insn_data[icode].operand[op].predicate (target, mode))
++    target = gen_reg_rtx (mode);
++
++  return target;
++}
++
++/* Expand an LM8_BUILTIN_DIRECT function.  ICODE is the code of the
++   .md pattern and ARGLIST is the list of function arguments.  TARGET,
++   if nonnull, suggests a good place to put the result.
++   HAS_TARGET indicates the function must return something.  */
++static rtx
++lm8_expand_builtin_direct (enum insn_code icode, rtx target, tree exp,
++			   bool has_target)
++{
++  rtx ops[MAX_RECOG_OPERANDS];
++  int opno = 0;
++  int argno;
++
++  if (has_target)
++    {
++      /* We save target to ops[0].  */
++      ops[opno] = lm8_prepare_builtin_target (icode, opno, target);
++      opno++;
++    }
++
++  /* Map the arguments to the other operands.  The n_operands value
++     for an expander includes match_dups and match_scratches as well as
++     match_operands, so n_operands is only an upper bound on the number
++     of arguments to the expander function.  */
++  gcc_assert (opno + call_expr_nargs (exp) <= insn_data[icode].n_operands);
++  for (argno = 0; argno < call_expr_nargs (exp); argno++, opno++)
++    ops[opno] = lm8_prepare_builtin_arg (icode, opno, exp, argno);
++
++  switch (opno)
++    {
++    case 1:
++      emit_insn (GEN_FCN (icode) (ops[0]));
++      break;
++
++    case 2:
++      emit_insn (GEN_FCN (icode) (ops[0], ops[1]));
++      break;
++
++    default:
++      gcc_unreachable ();
++    }
++  return target;
++}
++
++/* Expand builtin functions.  This is called from TARGET_EXPAND_BUILTIN.  */
++rtx
++lm8_expand_builtin (tree exp, rtx target, rtx subtarget ATTRIBUTE_UNUSED,
++		    enum machine_mode mode ATTRIBUTE_UNUSED,
++		    int ignore ATTRIBUTE_UNUSED)
++{
++  const struct builtin_description *d;
++  size_t i;
++  enum insn_code icode;
++  tree fndecl = TREE_OPERAND (CALL_EXPR_FN (exp), 0);
++  unsigned int fcode = DECL_FUNCTION_CODE (fndecl);
++
++  for (i = 0, d = lm8_bdesc;
++       i < ARRAY_SIZE (lm8_bdesc);
++       i++, d++)
++    if (d->code == fcode)
++      {
++	if (fcode == LM8_BUILTIN_IMPORT)
++	  switch (Pmode)
++	    {
++	    case QImode: icode = CODE_FOR_importqi; break;
++	    case HImode: icode = CODE_FOR_importhi; break;
++	    case SImode: icode = CODE_FOR_importsi; break;
++
++	    default:
++	      gcc_unreachable ();
++	    }
++	else if (fcode == LM8_BUILTIN_EXPORT)
++	  switch (Pmode)
++	    {
++	    case QImode: icode = CODE_FOR_exportqi; break;
++	    case HImode: icode = CODE_FOR_exporthi; break;
++	    case SImode: icode = CODE_FOR_exportsi; break;
++
++	    default:
++	      gcc_unreachable ();
++	    }
++	else
++	  gcc_unreachable ();
++
++	switch (d->builtin_type)
++	  {
++	  case LM8_BUILTIN_DIRECT:
++	    return lm8_expand_builtin_direct (icode, target, exp, true);
++
++	  case LM8_BUILTIN_DIRECT_NO_TARGET:
++	    return lm8_expand_builtin_direct (icode, target, exp, false);
++
++	  default:
++	    gcc_unreachable ();
++	  }
++      }
++
++  return NULL_RTX;
++}
++
++/* Handle "interrupt" attribute; arguments as in
++   struct attribute_spec.handler.  */
++static tree
++lm8_handle_fndecl_attribute (tree *node, tree name,
++			     tree args ATTRIBUTE_UNUSED,
++			     int flags ATTRIBUTE_UNUSED,
++			     bool *no_add_attrs)
++{
++  if (TREE_CODE (*node) != FUNCTION_DECL)
++    {
++      warning (OPT_Wattributes, "%qs attribute only applies to functions",
++	       IDENTIFIER_POINTER (name));
++      *no_add_attrs = true;
++    }
++
++  return NULL_TREE;
++}
++
++static bool
++lm8_rtx_costs (rtx x ATTRIBUTE_UNUSED, int code,
++               int outer_code ATTRIBUTE_UNUSED, int *total,
++               bool speed ATTRIBUTE_UNUSED)
++{
++  switch (code)
++    {
++    case CONST_INT:
++      /* These can be used anywhere. */
++      *total = 0;
++      return true;
++
++    default:
++      return false;
++    }
++}
++
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\lm8.h gcc-4.4.3-lm8\gcc\config\lm8\lm8.h
+--- gcc-4.4.3-org\gcc\config\lm8\lm8.h	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\lm8.h	Wed Apr 14 15:34:32 2010
+@@ -0,0 +1,628 @@
++/* Definitions of target machine for GNU compiler, Lattice Mico8 architecture.
++
++   Copyright (C) 2009, 2010 Free Software Foundation, Inc.
++
++   Contributed by Beyond Semiconductor (www.beyondsemi.com)
++
++   This file is part of GCC.
++
++   GCC is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3, or (at your option)
++   any later version.
++
++   GCC is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with GCC; see the file COPYING3.  If not see
++   <http://www.gnu.org/licenses/>.  */
++
++/*-------------------------------*/
++/* Run-time Target Specification */
++/*-------------------------------*/
++
++/* Print subsidiary information on the compiler version in use.  */
++#ifndef TARGET_VERSION
++#define TARGET_VERSION fprintf (stderr, " (LatticeMico8)")
++#endif
++
++#ifndef MULTILIB_DEFAULTS
++#define MULTILIB_DEFAULTS { "mcmodel=medium" }
++#endif
++
++/* Target CPU builtins.  */
++#define TARGET_CPU_CPP_BUILTINS()		\
++  do						\
++    {						\
++      builtin_define ("__lm8__");		\
++      builtin_assert ("cpu=lm8");		\
++      builtin_assert ("machine=lm8");		\
++						\
++      if (TARGET_SIXTEEN_REGS)			\
++	builtin_define ("__SIXTEEN_REGS__");	\
++      switch (lm8_cmodel)			\
++	{					\
++	case CM_SMALL:				\
++	  builtin_define ("__CMODEL_SMALL__");	\
++	  break;				\
++	case CM_MEDIUM:				\
++	  builtin_define ("__CMODEL_MEDIUM__");	\
++	  break;				\
++	case CM_LARGE:				\
++	  builtin_define ("__CMODEL_LARGE__");	\
++	  break;				\
++	default:				\
++	  gcc_unreachable ();			\
++	}					\
++    }						\
++  while (0)
++
++#undef  LIB_SPEC
++#define LIB_SPEC ""
++
++#undef  LINK_SPEC
++#define LINK_SPEC "%{mcmodel=small:-mlm8_elf_small} \
++ %{mcmodel=large:-mlm8_elf_large}"
++
++#define OVERRIDE_OPTIONS lm8_override_options()
++
++#define CAN_DEBUG_WITHOUT_FP
++
++/*---------------------------------*/
++/* Target machine storage layout.  */
++/*---------------------------------*/
++
++#define BITS_BIG_ENDIAN 0
++#define BYTES_BIG_ENDIAN 0
++#define WORDS_BIG_ENDIAN 0
++
++#ifdef IN_LIBGCC2
++/* This is to get correct SI and DI modes in libgcc2.c.  */
++#define UNITS_PER_WORD 2
++#else
++/* Width of a word, in units (bytes).  */
++#define UNITS_PER_WORD 1
++#endif
++
++#define POINTER_SIZE GET_MODE_BITSIZE (Pmode)
++
++/* Maximum sized of reasonable data type DImode or DFmode ...  */
++#define MAX_FIXED_MODE_SIZE 32
++
++#define PARM_BOUNDARY 8
++
++#define STACK_BOUNDARY 8
++
++#define FUNCTION_BOUNDARY 8
++
++#define EMPTY_FIELD_BOUNDARY 8
++
++/* No data type wants to be aligned rounder than this.  */
++#define BIGGEST_ALIGNMENT 8
++
++#define MAX_OFILE_ALIGNMENT (32768 * 8)
++
++#define TARGET_VTABLE_ENTRY_ALIGN 8
++
++#define STRICT_ALIGNMENT 0
++
++/*----------------------------------------*/
++/* Layout of source language data types.  */
++/*----------------------------------------*/
++
++#define INT_TYPE_SIZE (TARGET_INT8 ? 8 : 16)
++#define SHORT_TYPE_SIZE (INT_TYPE_SIZE == 8 ? INT_TYPE_SIZE : 16)
++#define LONG_TYPE_SIZE (INT_TYPE_SIZE == 8 ? 16 : 32)
++#define LONG_LONG_TYPE_SIZE 32
++
++#define FLOAT_TYPE_SIZE 32
++#define DOUBLE_TYPE_SIZE 32
++#define LONG_DOUBLE_TYPE_SIZE 32
++
++#define DEFAULT_SIGNED_CHAR 0
++
++#define SIZE_TYPE							\
++  ((Pmode == QImode) ? "unsigned char"					\
++   : (Pmode == HImode) ? (INT_TYPE_SIZE == 8				\
++			  ? "long unsigned int"				\
++			  : "unsigned int")				\
++   : (Pmode == SImode) ? (INT_TYPE_SIZE == 8				\
++			  ? "long long unsigned int"			\
++			  : "long unsigned int")			\
++   : "long long unsigned int")
++
++#define PTRDIFF_TYPE							\
++  ((Pmode == QImode) ? "char"						\
++   : (Pmode == HImode) ? (INT_TYPE_SIZE == 8				\
++			  ? "long int"					\
++			  : "int")					\
++   : (Pmode == SImode) ? (INT_TYPE_SIZE == 8				\
++			  ? "long long int"				\
++			  : "long int")					\
++   : "long long int")
++
++#define WCHAR_TYPE_SIZE 16
++
++/*---------------------------*/
++/* Standard register usage.  */
++/*---------------------------*/
++
++#define LAST_LM8_REGNUM	       (TARGET_SIXTEEN_REGS ? 15 : 31)
++#define FIRST_PSEUDO_REGISTER  36
++
++#define R13_REGNUM  13
++#define R14_REGNUM  14
++#define R15_REGNUM  15
++
++#define RV_REGNUM   0
++
++#define SP_REGNUM_SMALL		14
++#define SP_REGNUM_MEDIUM	8
++#define SP_REGNUM_LARGE		24
++
++#define SP_REGNUM				\
++  ((Pmode == QImode) ? SP_REGNUM_SMALL		\
++   : (Pmode == HImode) ? SP_REGNUM_MEDIUM	\
++   : SP_REGNUM_LARGE)
++
++#define FP_REGNUM_SMALL		15
++#define FP_REGNUM_MEDIUM	10
++#define FP_REGNUM_LARGE		28
++
++#define FP_REGNUM				\
++  ((Pmode == QImode) ? FP_REGNUM_SMALL		\
++   : (Pmode == HImode) ? FP_REGNUM_MEDIUM	\
++   : FP_REGNUM_LARGE)
++
++#define TMP_REGNUM		12
++
++#define G_REG_P(X) ((X) < FIRST_PSEUDO_REGISTER)
++
++/* 1 for registers that have pervasive standard uses
++   and are not available for the register allocator.
++
++   Proper values are computed in the CONDITIONAL_REGISTER_USAGE.  */
++#define FIXED_REGISTERS   \
++{ 0, 0, 0, 0, 0, 0, 0, 0, \
++  0, 0, 0, 0, 0, 0, 0, 0, \
++  0, 0, 0, 0, 0, 0, 0, 0, \
++  0, 0, 0, 0, 0, 0, 0, 0, \
++  1, 1, 1, 1 }
++
++/* 1 for registers not available across function calls.
++   These must include the FIXED_REGISTERS and also any
++   registers that can be used without being saved.
++   The latter must include the registers where values are returned
++   and the register where structure-value addresses are passed.
++   Aside from that, you can include as many other registers as you like.
++
++   Proper values are computed in the CONDITIONAL_REGISTER_USAGE.  */
++#define CALL_USED_REGISTERS \
++{ 1, 1, 1, 1, 1, 1, 1, 1,   \
++  0, 0, 0, 0, 0, 0, 0, 0,   \
++  0, 0, 0, 0, 0, 0, 0, 0,   \
++  0, 0, 0, 0, 0, 0, 0, 0,   \
++  1, 1, 1, 1 }
++
++/* Macro to conditionally modify fixed_regs/call_used_regs.  */
++#define CONDITIONAL_REGISTER_USAGE lm8_conditional_register_usage ()
++
++#define HARD_REGNO_NREGS(REGNO, MODE)					\
++  ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
++
++#define HARD_REGNO_MODE_OK(REGNO, MODE) lm8_hard_regno_mode_ok(REGNO, MODE)
++
++#define MODES_TIEABLE_P(MODE1, MODE2) 1
++
++#define AVOID_CCMODE_COPIES
++
++/*----------------------------------*/
++/* Register classes and constants.  */
++/*----------------------------------*/
++
++enum reg_class
++{
++  NO_REGS,
++  GENERAL_REGS,
++  ALL_REGS,
++  LIM_REG_CLASSES
++};
++
++#define N_REG_CLASSES (int) LIM_REG_CLASSES
++
++#define REG_CLASS_NAMES { "NO_REGS", "GENERAL_REGS", "ALL_REGS" }
++
++#define REG_CLASS_CONTENTS	\
++{				\
++  {0x00000000,0x0},		\
++  {0xffffffff,0xf},		\
++  {0xffffffff,0xf}		\
++}
++
++#define REGNO_REG_CLASS(REGNO) \
++  (G_REG_P(REGNO) ? GENERAL_REGS : NO_REGS)
++
++#define CLASS_MAX_NREGS(CLASS, MODE) \
++  ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
++
++#define INDEX_REG_CLASS NO_REGS
++
++#define REGNO_OK_FOR_INDEX_P(REGNO) 0
++
++#define BASE_REG_CLASS GENERAL_REGS
++
++#define REGNO_OK_FOR_BASE_P(REGNO) \
++  (G_REG_P (REGNO) || G_REG_P ((unsigned) reg_renumber[REGNO]))
++
++#define PREFERRED_RELOAD_CLASS(X,CLASS) (CLASS)
++
++/*----------------------------------------*/
++/* Stack Layout and Calling Conventions.  */
++/*----------------------------------------*/
++
++#define STACK_GROWS_DOWNWARD 1
++
++#define FRAME_GROWS_DOWNWARD 1
++
++#define STACK_POINTER_OFFSET 0
++
++#define STARTING_FRAME_OFFSET 0
++
++#define FIRST_PARM_OFFSET(FNDECL) 0
++
++#define STACK_POINTER_REGNUM SP_REGNUM
++
++#define FRAME_POINTER_REGNUM FP_REGNUM
++
++/* Base register for access to arguments of the function.  */
++#define ARG_POINTER_REGNUM 32
++
++/* FIXME - This is not yet supported.  */
++#define STATIC_CHAIN_REGNUM 9
++
++#define FRAME_POINTER_REQUIRED 0
++
++#define ELIMINABLE_REGS					\
++{{ ARG_POINTER_REGNUM, SP_REGNUM_SMALL },		\
++ { ARG_POINTER_REGNUM, SP_REGNUM_MEDIUM },		\
++ { ARG_POINTER_REGNUM, SP_REGNUM_LARGE },		\
++ { ARG_POINTER_REGNUM, FP_REGNUM_SMALL },		\
++ { ARG_POINTER_REGNUM, FP_REGNUM_MEDIUM },		\
++ { ARG_POINTER_REGNUM, FP_REGNUM_LARGE },		\
++ { FP_REGNUM_SMALL, SP_REGNUM_SMALL },			\
++ { FP_REGNUM_MEDIUM, SP_REGNUM_MEDIUM },		\
++ { FP_REGNUM_MEDIUM+1, SP_REGNUM_MEDIUM+1 },		\
++ { FP_REGNUM_LARGE, SP_REGNUM_LARGE },			\
++ { FP_REGNUM_LARGE+1, SP_REGNUM_LARGE+1 },		\
++ { FP_REGNUM_LARGE+2, SP_REGNUM_LARGE+2 },		\
++ { FP_REGNUM_LARGE+3, SP_REGNUM_LARGE+3 }}
++
++#define CAN_ELIMINATE(FROM, TO) lm8_can_eliminate (FROM, TO)
++
++#define INITIAL_ELIMINATION_OFFSET(FROM, TO, OFFSET)	\
++  (OFFSET) = lm8_initial_elimination_offset (FROM, TO)
++
++/*-----------------------------*/
++/* Function argument passing.  */
++/*-----------------------------*/
++
++#define ACCUMULATE_OUTGOING_ARGS 1
++
++#define RETURN_POPS_ARGS(DECL, FUNTYPE, SIZE) 0
++
++/*--------------------------------*/
++/* Passing Arguments in Registers */
++/*--------------------------------*/
++
++/* The first argument register.  */
++#define LM8_FIRST_ARG_REG 0
++
++/* The number of (integer) argument register available.  */
++#define LM8_NUM_ARG_REGS 8
++
++#define FUNCTION_ARG(CUM, MODE, TYPE, NAMED)		\
++  lm8_function_arg (CUM, MODE, TYPE, NAMED)
++
++#define CUMULATIVE_ARGS int
++
++#define INIT_CUMULATIVE_ARGS(CUM, FNTYPE, LIBNAME, INDIRECT, N_NAMED_ARGS) \
++  (CUM) = 0
++
++#define FUNCTION_ARG_ADVANCE(CUM, MODE, TYPE, NAMED)	\
++  (CUM) += LM8_NUM_REGS2 (MODE, TYPE)
++
++#define FUNCTION_ARG_REGNO_P(N)				\
++  (((N) >= LM8_FIRST_ARG_REG)				\
++   && ((N) < (LM8_FIRST_ARG_REG + LM8_NUM_ARG_REGS)))
++
++/*--------------------*/
++/* Function results.  */
++/*--------------------*/
++
++#define FUNCTION_VALUE(VALTYPE, FUNC)		\
++  gen_rtx_REG (TYPE_MODE (VALTYPE), RV_REGNUM)
++
++#define LIBCALL_VALUE(MODE) gen_rtx_REG (MODE, RV_REGNUM)
++
++#define FUNCTION_VALUE_REGNO_P(N) ((N) == RV_REGNUM)
++
++#define RETURN_IN_MEMORY(TYPE) lm8_return_in_memory (TYPE)
++
++#define DEFAULT_PCC_STRUCT_RETURN 0
++
++/* Convert from bytes to ints.  */
++#define LM8_NUM_INTS(X) (((X) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
++
++/* The number of (integer) registers required to hold a quantity of
++   type MODE.  */
++#define LM8_NUM_REGS(MODE) LM8_NUM_INTS (GET_MODE_SIZE (MODE))
++
++/* The number of (integer) registers required to hold a quantity of
++   TYPE MODE.  */
++#define LM8_NUM_REGS2(MODE, TYPE)			\
++  LM8_NUM_INTS ((MODE) == BLKmode ?			\
++  int_size_in_bytes (TYPE) : GET_MODE_SIZE (MODE))
++
++#define STRUCT_VALUE 0
++
++/*---------------------------*/
++/* Function entry and exit.  */
++/*---------------------------*/
++
++/*-------------*/
++/* Profiling.  */
++/*-------------*/
++
++#define FUNCTION_PROFILER(FILE, LABELNO)
++
++/*---------------*/
++/* Trampolines.  */
++/*---------------*/
++
++/* No trampolines.  */
++#define TRAMPOLINE_SIZE 0
++#define INITIALIZE_TRAMPOLINE(ADDR, FNADDR, CHAIN)
++
++/*---------------------*/
++/*  Addressing Modes.  */
++/*---------------------*/
++
++#define CONSTANT_ADDRESS_P(X) CONSTANT_P (X)
++
++#define MAX_REGS_PER_ADDRESS 1
++
++#ifdef REG_OK_STRICT
++#  define GO_IF_LEGITIMATE_ADDRESS(MODE, OPERAND, ADDR)	\
++{							\
++  if (lm8_legitimate_address_p (MODE, OPERAND, 1))	\
++    goto ADDR;						\
++}
++#else
++#  define GO_IF_LEGITIMATE_ADDRESS(MODE, OPERAND, ADDR)	\
++  {							\
++  if (lm8_legitimate_address_p (MODE, OPERAND, 0))	\
++    goto ADDR;						\
++}
++#endif
++
++#define STRICT_REG_OK_FOR_BASE_P(X)		\
++  (REGNO_OK_FOR_BASE_P (REGNO (X)))
++#define NONSTRICT_REG_OK_FOR_BASE_P(X)				\
++  (G_REG_P (REGNO (X)) || !HARD_REGISTER_NUM_P (REGNO (X)))
++
++#ifdef REG_OK_STRICT
++#define REG_OK_FOR_BASE_P(X) STRICT_REG_OK_FOR_BASE_P(X)
++#else
++#define REG_OK_FOR_BASE_P(X) NONSTRICT_REG_OK_FOR_BASE_P(X)
++#endif
++
++#define REG_OK_FOR_INDEX_P(X) 0
++
++#define GO_IF_MODE_DEPENDENT_ADDRESS(ADDR, LABEL)
++
++#define LEGITIMATE_CONSTANT_P(X) 1
++
++/*-------------------------*/
++/* Condition Code Status.  */
++/*-------------------------*/
++
++#define NOTICE_UPDATE_CC(EXP, INSN) lm8_notice_update_cc(EXP, INSN)
++
++/*---------*/
++/* Costs.  */
++/*---------*/
++
++#define SLOW_BYTE_ACCESS 1
++
++#define NO_FUNCTION_CSE
++
++#define MEMORY_MOVE_COST(MODE, CLASS, IN)		\
++  ((MODE) == QImode ? 2					\
++   : (MODE) == HImode ? 4				\
++   : (MODE) == SImode ? 8				\
++   : (MODE) == SFmode ? 8				\
++   : 16)
++
++#define BRANCH_COST(speed_p, predictable_p) 0
++
++/*------------*/
++/* Sections.  */
++/*------------*/
++
++#define TEXT_SECTION_ASM_OP "\t.text"
++
++#define DATA_SECTION_ASM_OP "\t.data"
++
++#define BSS_SECTION_ASM_OP "\t.section .bss"
++
++/*-------------*/
++/* Assembler.  */
++/*-------------*/
++
++#define ASM_COMMENT_START "#"
++
++#define ASM_APP_ON "#APP\n"
++
++#define ASM_APP_OFF "#NO_APP\n"
++
++#define ASM_OUTPUT_DEF(FILE, LABEL1, LABEL2)	\
++  do {						\
++    fputc ( '\t', FILE);			\
++    assemble_name (FILE, LABEL1);		\
++    fputs ( " = ", FILE);			\
++    assemble_name (FILE, LABEL2);		\
++    fputc ( '\n', FILE);			\
++  } while (0)
++
++#define ASM_OUTPUT_LABEL(FILE, NAME)	\
++  do {					\
++    assemble_name (FILE, NAME);		\
++    fputs (":\n", FILE);		\
++  } while (0)
++
++#define ASM_OUTPUT_LABELREF(FILE, NAME)	\
++  do {					\
++    const char *xname = (NAME);		\
++    if (xname[0] == '@')		\
++      xname += 1;			\
++    if (xname[0] == '*')		\
++      xname += 1;			\
++    fputs (xname, FILE);		\
++  } while (0)
++
++#define ASM_OUTPUT_SYMBOL_REF(STREAM, SYMBOL)	\
++  assemble_name (STREAM, XSTR (SYMBOL, 0));
++
++#define GLOBAL_ASM_OP "\t.global\t"
++
++#define ASM_GENERATE_INTERNAL_LABEL(STRING, PREFIX, NUM)	\
++  sprintf (STRING, "*.%s%lu", PREFIX, (unsigned long)(NUM))
++
++#define HAS_INIT_SECTION 1
++
++#undef DO_GLOBAL_CTORS_BODY
++#define DO_GLOBAL_CTORS_BODY			\
++{						\
++  /* FIXME */					\
++}
++
++#undef DO_GLOBAL_DTORS_BODY
++#define DO_GLOBAL_DTORS_BODY			\
++{						\
++  /* FIXME */					\
++}
++
++#define REGISTER_NAMES						\
++{								\
++ "r0",  "r1",  "r2",  "r3",  "r4",  "r5",  "r6",  "r7",		\
++ "r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15",	\
++ "r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23",	\
++ "r24", "r25", "r26", "r27", "r28", "r29", "r30", "r31",	\
++ "arg0", "arg1", "arg2", "arg3"					\
++}
++
++#define PRINT_OPERAND_PUNCT_VALID_P(CHAR)			\
++  (((CHAR) == '&') || ((CHAR) == '@') || ((CHAR) == '*'))
++
++#define PRINT_OPERAND(FILE, X, CODE)		\
++  lm8_print_operand (FILE, X, CODE)
++
++#define PRINT_OPERAND_ADDRESS(FILE, ADDR)	\
++  lm8_print_operand_address (FILE, ADDR)
++
++#ifndef LOCAL_LABEL_PREFIX
++#define LOCAL_LABEL_PREFIX "."
++#endif
++
++/* Invoked just before function output. */
++#define ASM_DECLARE_FUNCTION_NAME(FILE, NAME, DECL)		\
++  lm8_asm_declare_function_name (FILE, NAME, DECL)
++
++#define ASM_OUTPUT_COMMON(STREAM, NAME, SIZE, ROUNDED)		\
++  do {								\
++    fputs ("\t.comm ", STREAM);					\
++    assemble_name (STREAM, NAME);				\
++    fprintf (STREAM, ",%lu,1\n", (unsigned long)(SIZE));	\
++  } while (0)
++
++#define ASM_OUTPUT_BSS(FILE, DECL, NAME, SIZE, ROUNDED)		\
++  asm_output_bss (FILE, DECL, NAME, SIZE, ROUNDED)	\
++
++#define ASM_OUTPUT_LOCAL(STREAM, NAME, SIZE, ROUNDED)	\
++  do {							\
++    fputs ("\t.lcomm ", STREAM);			\
++    assemble_name (STREAM, NAME);			\
++    fprintf (STREAM, ",%d\n", (int)(SIZE));		\
++  } while (0)
++
++#define ASM_OUTPUT_SKIP(STREAM, N)				\
++  fprintf (STREAM, "\t.skip %lu,0\n", (unsigned long)(N))
++
++#define ASM_OUTPUT_ALIGN(STREAM, POWER)			\
++  do {							\
++      if ((POWER) > 1)					\
++	fprintf (STREAM, "\t.p2align\t%d\n", POWER);	\
++  } while (0)
++
++#define ASM_OUTPUT_ADDR_VEC_ELT(FILE, VALUE)		\
++  do {							\
++    char label[64];					\
++    ASM_GENERATE_INTERNAL_LABEL (label, "L", VALUE);	\
++    fprintf (FILE, "\n\t.word\t");			\
++    assemble_name (FILE, label);			\
++    fprintf (FILE, "\n");				\
++  } while (0)
++
++#define ASM_OUTPUT_ADDR_DIFF_ELT(FILE, BODY, VALUE, REL)	\
++  do {								\
++    char label[64];						\
++    fprintf (FILE, "\t.word\t(");				\
++    ASM_GENERATE_INTERNAL_LABEL (label, "L", VALUE);		\
++    assemble_name (FILE, label);				\
++    fprintf (FILE, "-");					\
++    ASM_GENERATE_INTERNAL_LABEL (label, "L", REL);		\
++    assemble_name (FILE, label);				\
++    fprintf (FILE, ")\n");					\
++  } while (0)
++
++/*-------------*/
++/* Debugging.  */
++/*-------------*/
++
++#define DBX_REGISTER_NUMBER(REGNO) (REGNO)
++
++#define CAN_DEBUG_WITHOUT_FP
++
++#define DEFAULT_GDB_EXTENSIONS 1
++
++/*--------*/
++/* Misc.  */
++/*--------*/
++
++#define CASE_VECTOR_MODE Pmode
++
++#undef WORD_REGISTER_OPERATIONS
++
++#define MOVE_MAX 4
++
++#define SHIFT_COUNT_TRUNCATED 1
++
++#define TRULY_NOOP_TRUNCATION(OUTPREC, INPREC) 1
++
++#define Pmode					\
++  ((lm8_cmodel == CM_SMALL) ? QImode		\
++   : (lm8_cmodel == CM_MEDIUM) ? HImode		\
++   : SImode)
++
++#define FUNCTION_MODE HImode
++
++enum cmodel {
++  CM_SMALL,
++  CM_MEDIUM,
++  CM_LARGE
++};
++
++extern enum cmodel lm8_cmodel;
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\lm8.md gcc-4.4.3-lm8\gcc\config\lm8\lm8.md
+--- gcc-4.4.3-org\gcc\config\lm8\lm8.md	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\lm8.md	Mon May 24 22:21:04 2010
+@@ -0,0 +1,651 @@
++;; -*- Mode: Scheme -*-
++;; Machine description of the Lattice Mico8 architecture for GNU C compiler.
++
++;; Contributed by Beyond Semiconductor (www.beyondsemi.com)
++
++;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
++
++;; This file is part of GCC.
++
++;; GCC is free software; you can redistribute it and/or modify it
++;; under the terms of the GNU General Public License as published
++;; by the Free Software Foundation; either version 3, or (at your
++;; option) any later version.
++
++;; GCC is distributed in the hope that it will be useful, but WITHOUT
++;; ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++;; or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
++;; License for more details.
++
++;; You should have received a copy of the GNU General Public License
++;; along with GCC; see the file COPYING3.  If not see
++;; <http://www.gnu.org/licenses/>.  
++
++;; Special characters after '%':
++;;  A  Handle low part of 16bit value.
++;;  B  Handle high part.
++
++(define_constants
++  [(UNSPECV_PROLOGUE_SAVES	0)
++   (UNSPECV_EPILOGUE_RESTORES	1)
++
++   (UNSPECV_IMPORT		2)
++   (UNSPECV_EXPORT		3)]
++)
++
++;; This mode iterator allows :P to be used for patterns that operate on
++;; pointer-sized quantities.  Exactly one alternative will match.
++(define_mode_iterator P [(QI "Pmode == QImode")
++			 (HI "Pmode == HImode")
++			 (SI "Pmode == SImode")])
++
++;; Include predicate and constraint definitions
++(include "predicates.md")
++(include "constraints.md")
++
++;; Condition code settings.
++(define_attr "cc" "none,set_z,set_cz,compare,clobber"
++  (const_string "none"))
++
++;; Number of instructions
++(define_attr "length" "" (const_int 1))
++
++;; Integer word modes
++(define_mode_iterator IMODE [QI HI SI])
++(define_mode_iterator IMODE24 [HI SI])
++
++;; ---------------------------------
++;;              nop 
++;; ---------------------------------
++
++(define_insn "nop"  
++  [(const_int 0)]
++  ""
++  "nop")
++
++;; ---------------------------------
++;;               mov 
++;; ---------------------------------
++
++(define_expand "mov<mode>"
++  [(set (match_operand:IMODE 0 "nonimmediate_operand" "")
++	(match_operand:IMODE 1 "general_operand" ""))]
++  ""
++{
++  if (lm8_expand_move (<MODE>mode, operands[0], operands[1]))
++    DONE;
++})
++
++(define_insn_and_split "*movsi"
++  [(set (match_operand:SI 0 "nonimmediate_operand" "=r,&r,m")
++	(match_operand:SI 1 "nonimmediate_operand" "r,m,r"))]
++  "register_operand (operands[0], SImode)
++   || register_operand (operands[1], SImode)"
++  "#"
++  ""
++  [(const_int 0)]
++{
++  lm8_split_simode_move (operands[0], operands[1]);
++  DONE;
++}
++  [(set_attr "cc" "clobber")])
++
++(define_insn "*movsi_imm"
++  [(set (match_operand:SI 0 "register_operand" "=r")
++	(match_operand:SI 1 "immediate_operand" "i"))]
++  ""
++  "movi\t%A0,%A1\n\tmovi\t%B0,%B1\n\tmovi\t%C0,%C1\n\tmovi\t%D0,%D1"
++  [(set_attr "cc" "clobber")
++   (set_attr "length" "4")])
++
++(define_insn "*movhi_high"
++  [(set (match_operand:HI 0 "register_operand" "=r")
++	(high:HI (match_operand:HI 1 "immediate_operand" "i")))]
++  ""
++  "movi\t%B0,_hi(%1)"
++  [(set_attr "cc" "set_z")])
++
++(define_insn "*movhi_lo_sum"
++  [(set (match_operand:HI 0 "register_operand" "=r")
++	(lo_sum:HI (match_operand:HI 1 "register_operand" "0")
++                   (match_operand:HI 2 "immediate_operand" "i")))]
++  ""
++  "movi\t%A0,_lo(%2)"
++ [(set_attr "cc" "set_z")])
++
++(define_insn_and_split "*movhi"
++  [(set (match_operand:HI 0 "nonimmediate_operand" "=r,r,&r,m")
++	(match_operand:HI 1 "move_operand"         "r,i,m,r"))]
++  "register_operand (operands[0], HImode)
++   || register_operand (operands[1], HImode)"
++  "#"
++  "&& GET_CODE (operands[1]) != HIGH
++   && GET_CODE (operands[1]) != LO_SUM"
++  [(const_int 0)]
++{
++  lm8_split_himode_move (operands[0], operands[1]);
++  DONE;
++}
++  [(set_attr "cc" "clobber")])
++
++(define_expand "reload_in<IMODE24:mode>_<P:mode>"
++  [(parallel [(match_operand:IMODE24 0 "register_operand" "=&r")
++              (match_operand:IMODE24 1 "memory_operand" "m")
++	      (match_operand:P 2 "register_operand" "=&r")])]
++  ""
++{
++  lm8_split_<IMODE24:mode>mode_spill (operands[0], operands[1], operands[2]);
++  DONE;
++})
++
++(define_expand "reload_out<IMODE24:mode>_<P:mode>"
++  [(parallel [(match_operand 0 "memory_operand" "=m")
++	      (match_operand:IMODE24 1 "register_operand" "r")
++	      (match_operand:P 2 "register_operand" "=&r")])]
++  ""
++{
++  lm8_split_<IMODE24:mode>mode_spill (operands[0], operands[1], operands[2]);
++  DONE;
++})
++
++(define_insn "*movqi"
++  [(set (match_operand:QI 0 "nonimmediate_operand" "=r,r,r,m")
++	(match_operand:QI 1 "general_operand"       "r,i,m,r"))]
++  "register_operand (operands[0], QImode)
++   || register_operand (operands[1], QImode)"
++  "@
++   mov\t%0,%1
++   movi\t%0,%1
++   %p1lspi\t%0,%1
++   %p0sspi\t%1,%0"
++  [(set_attr "cc" "set_z")])
++
++;; ---------------------------------
++;;            arithmetic 
++;; ---------------------------------
++
++(define_code_iterator arith [plus minus])
++(define_code_attr comm [(plus "%") (minus "")])
++(define_code_attr arith_insn [(plus "add") (minus "sub")])
++
++(define_insn "<arith_insn><mode>3"
++  [(set (match_operand:IMODE 0 "register_operand" "=r,r")
++        (arith:IMODE (match_operand:IMODE 1 "register_operand"  "<comm>0,0")
++		     (match_operand:IMODE 2 "nonmemory_operand" "r,i")))]
++  ""
++  "*return lm8_output_arith (<CODE>, operands);"
++  [(set (attr "cc")
++	(if_then_else (match_operand:QI 0 "" "")
++		      (const_string "set_cz")
++		      (const_string "clobber")))])
++
++;; ---------------------------------
++;;          one complement
++;; ---------------------------------
++
++(define_insn "one_cmplqi2"
++  [(set (match_operand:QI 0 "register_operand" "=r")
++	(not:QI (match_operand:QI 1 "register_operand" "0")))]
++  ""
++  "xori\t%0,0xff"
++  [(set_attr "cc" "set_z")])
++
++;; ---------------------------------
++;;             logical 
++;; ---------------------------------
++
++(define_code_iterator logic [and ior xor])
++
++(define_insn "<code><mode>3"
++  [(set (match_operand:IMODE 0 "register_operand" "=r,r")
++        (logic:IMODE (match_operand:IMODE 1 "register_operand"  "%0,0")
++		     (match_operand:IMODE 2 "nonmemory_operand" "r,i")))]
++  ""
++  "*return lm8_output_logic (<CODE>, operands);"
++  [(set (attr "cc")
++	(if_then_else (match_operand:QI 0 "" "")
++		      (const_string "set_z")
++		      (const_string "clobber")))])
++
++;; ---------------------------------
++;;         compare 
++;; ---------------------------------
++
++(define_expand "cmpqi"
++  [(set (reg:QI 0) (match_operand:QI 0 "general_operand" ""))
++   (set (reg:QI 1) (match_operand:QI 1 "general_operand" ""))
++   (parallel [(set (cc0) (compare (reg:QI 0) (reg:QI 1)))
++		   (clobber (reg:QI 12))
++		   (clobber (reg:QI 13))])]
++  ""
++  "")
++
++(define_peephole2
++  [(set (reg:QI 0)
++	(and:QI (reg:QI 0)
++		(match_operand:QI 0 "nonmemory_operand" "")))
++   (set (reg:QI 1)
++	(const_int 0))
++   (parallel [(set (cc0)
++		   (compare (reg:QI 0) (reg:QI 1)))
++	      (clobber (reg:QI 12))
++	      (clobber (reg:QI 13))])]
++  "lm8_next_cc0_user_zf (peep2_next_insn (2))
++   && peep2_regno_dead_p (3, 0)
++   && peep2_regno_dead_p (3, 1)"
++  [(set (cc0) (compare
++	        (and:QI (reg:QI 0) (match_dup 0))
++		(const_int 0)))]	
++  "")
++
++;; If the insn sequence compares the result of a mask operation with an
++;; immediate operand that has exactly one non-zero byte against zero
++;; (i.e. '(<reg> & 0xa300) != 0'), convert the insn to a single testi
++;; instruction with a single byte nonzero operand, but only if the
++;; intermediate masking result is unused outside the comparison.
++(define_peephole2
++  [(set (reg:HI 0)
++	(and:HI (reg:HI 0)
++		(match_operand:HI 1 "one_byte_non_zero_operand" "")))
++   (set (reg:QI 2)
++	(const_int 0))
++   (set (reg:QI 3)
++	(const_int 0))
++   (parallel [(set (cc0)
++		   (compare (reg:HI 0) (reg:HI 2)))
++	      (clobber (reg:QI 12))
++	      (clobber (reg:QI 13))])]
++  "lm8_next_cc0_user_zf (peep2_next_insn (3))
++   && peep2_regno_dead_p (4, 0)
++   && peep2_regno_dead_p (4, 1)
++   && peep2_regno_dead_p (4, 2)
++   && peep2_regno_dead_p (4, 3)"
++  [(set (cc0) (compare
++	        (and:QI (match_dup 0) (match_dup 1))
++		(const_int 0)))]	
++{
++  unsigned HOST_WIDE_INT x = INTVAL (operands[1]);
++  unsigned int i;
++
++  for (i = 0; i < 2; i++)
++    {
++      if (x & 0xff)
++        break;
++      x >>= 8;
++    }
++  /* Remember that because of the "one_byte_non_zero_operand" predicate
++   * x will now definatly fit into QImode (ie. x <= 0xff). */
++
++  operands[1] = GEN_INT (trunc_int_for_mode (x, QImode));
++  operands[0] = gen_rtx_REG (QImode, i);
++})
++
++;; If the insn sequence compares the result of a mask operation with an
++;; immediate operand that has exactly one non-zero byte against zero
++;; (i.e. '(<reg> & 0xa300) != 0'), convert the insn to a single testi
++;; instruction with a single byte nonzero operand, but only if the
++;; intermediate masking result is unused outside the comparison.
++(define_peephole2
++  [(set (reg:SI 0)
++	(and:SI (reg:SI 0)
++		(match_operand:SI 1 "one_byte_non_zero_operand" "")))
++   (set (reg:SI 4)
++	(const_int 0))
++   (parallel [(set (cc0)
++		   (compare (reg:SI 0) (reg:SI 4)))
++	      (clobber (reg:QI 12))
++	      (clobber (reg:QI 13))])]
++  "lm8_next_cc0_user_zf (peep2_next_insn (2))
++   && peep2_regno_dead_p (3, 0)
++   && peep2_regno_dead_p (3, 1)
++   && peep2_regno_dead_p (3, 2)
++   && peep2_regno_dead_p (3, 3)
++   && peep2_regno_dead_p (3, 4)
++   && peep2_regno_dead_p (3, 5)
++   && peep2_regno_dead_p (3, 6)
++   && peep2_regno_dead_p (3, 7)"
++  [(set (cc0) (compare
++	        (and:QI (match_dup 0) (match_dup 1))
++		(const_int 0)))]	
++{
++  unsigned HOST_WIDE_INT x = INTVAL (operands[1]);
++  unsigned int i;
++
++  for (i = 0; i < 4; i++)
++    {
++      if (x & 0xff)
++        break;
++      x >>= 8;
++    }
++  /* Remember that because of the "one_byte_non_zero_operand" predicate
++   * x will now definatly fit into QImode (ie. x <= 0xff). */
++
++  operands[1] = GEN_INT (trunc_int_for_mode (x, QImode));
++  operands[0] = gen_rtx_REG (QImode, i);
++})
++
++(define_insn "*cmpqi_test_1"
++  [(set (cc0)
++	(compare
++	  (and:QI (match_operand:QI 0 "register_operand" "%r,r")
++		  (match_operand:QI 1 "nonmemory_operand" "r,i"))
++	  (const_int 0)))]
++  "reload_completed
++   && lm8_next_cc0_user_zf (insn)"
++  "@
++   test\t%0,%1
++   testi\t%0,%1"
++  [(set_attr "cc" "set_z")])
++
++(define_peephole2
++  [(set (reg:QI 1)
++	(match_operand:QI 0 "nonmemory_operand" ""))
++   (parallel [(set (cc0)
++		   (compare (reg:QI 0) (reg:QI 1)))
++	      (clobber (reg:QI 12))
++	      (clobber (reg:QI 13))])]
++  "lm8_next_cc0_user_unsigned (peep2_next_insn (1))
++   && peep2_regno_dead_p (2, 1)"
++  [(set (cc0) (compare (reg:QI 0) (match_dup 0)))]
++  "")
++
++(define_insn "*cmpqi_uns_1"
++  [(set (cc0)
++	(compare (match_operand:QI 0 "register_operand" "r,r")
++		 (match_operand:QI 1 "nonmemory_operand" "r,i")))]
++  "reload_completed
++   && lm8_next_cc0_user_unsigned (insn)"
++  "@
++   cmp\t%0,%1
++   cmpi\t%0,%1"
++  [(set_attr "cc" "compare")])
++
++(define_insn "*cmpqi_1"
++  [(set (cc0) (compare (reg:QI 0) (reg:QI 1)))
++   (clobber (reg:QI 12))
++   (clobber (reg:QI 13))]
++  ""
++  "*return lm8_output_compare (insn, QImode);"
++  [(set_attr "cc" "compare")])
++
++
++(define_expand "cmphi"
++  [(set (reg:HI 0) (match_operand:HI 0 "move_operand" ""))
++   (set (reg:HI 2) (match_operand:HI 1 "move_operand" ""))
++   (parallel [(set (cc0) (compare (reg:HI 0) (reg:HI 2)))
++		   (clobber (reg:QI 12))
++		   (clobber (reg:QI 13))])]
++  ""
++  "")
++
++(define_insn "*cmphi_1"
++  [(set (cc0) (compare (reg:HI 0) (reg:HI 2)))
++   (clobber (reg:QI 12))
++   (clobber (reg:QI 13))]
++  ""
++  "*return lm8_output_compare (insn, HImode);"
++  [(set_attr "cc" "compare")])
++
++(define_expand "cmpsi"
++  [(set (reg:SI 0) (match_operand:SI 0 "general_operand" ""))
++   (set (reg:SI 4) (match_operand:SI 1 "general_operand" ""))
++   (parallel [(set (cc0) (compare (reg:SI 0) (reg:SI 4)))
++		   (clobber (reg:QI 12))
++		   (clobber (reg:QI 13))])]
++  ""
++  "")
++
++(define_insn "*cmpsi_1"
++  [(set (cc0) (compare (reg:SI 0) (reg:SI 4)))
++   (clobber (reg:QI 12))
++   (clobber (reg:QI 13))]
++  ""
++  "*return lm8_output_compare (insn, SImode);"
++  [(set_attr "cc" "compare")])
++
++;; ---------------------------------
++;;       unconditional branch
++;; ---------------------------------
++
++(define_insn "jump"
++  [(set (pc)
++  	(label_ref (match_operand 0 "" "")))]
++  ""
++  "b\t%0")
++
++(define_expand "indirect_jump"
++  [(set (pc)
++  	(match_operand:HI 0 "register_operand" "r"))]
++  ""
++  "sorry (\"indirect jumps not implemented on this target\");")
++
++;; ---------------------------------
++;;        conditional branch
++;; ---------------------------------
++
++(define_code_iterator cmp_z [eq ne])
++(define_code_attr z [(eq "z") (ne "nz")])
++
++(define_insn "b<code>"
++  [(set (pc)
++	(if_then_else (cmp_z (cc0) (const_int 0))
++		      (label_ref (match_operand 0 "" ""))
++		      (pc)))]
++  ""
++  "b<z>\t%0\t# <code>")
++
++(define_code_iterator cmp_c [ltu geu])
++(define_code_attr c [(ltu "c") (geu "nc")])
++
++
++(define_insn "b<code>"
++  [(set (pc)
++	(if_then_else (cmp_c (cc0) (const_int 0))
++		      (label_ref (match_operand 0 "" ""))
++		      (pc)))]
++  ""
++  "b<c>\t%0\t# <code>")
++
++;; %%% We want to avoid these
++(define_insn "bleu"
++  [(set (pc)
++	(if_then_else (leu (cc0) (const_int 0))
++		      (label_ref (match_operand 0 "" ""))
++		      (pc)))]
++  ""
++  "bc\t%0\t# |\n\tbz\t%0\t# |leu"
++  [(set_attr "length" "2")])
++
++(define_insn "bgtu"
++  [(set (pc)
++	(if_then_else (gtu (cc0) (const_int 0))
++		      (label_ref (match_operand 0 "" ""))
++		      (pc)))]
++  ""
++  "bc\t.+3\t# |\n\tbnz\t%0\t# |gtu"
++  [(set_attr "length" "2")])
++
++(define_code_iterator invalid_cond [gt ge lt le])
++
++(define_insn "b<code>"
++  [(set (pc)
++	(if_then_else (invalid_cond (cc0) (const_int 0))
++		      (label_ref (match_operand 0 "" ""))
++		      (pc)))]
++  ""
++  "* gcc_unreachable ();")
++
++;;
++;; ---------------------------------
++;;               call 
++;; ---------------------------------
++
++(define_expand "call"
++  [(call (match_operand 0 "" "")
++	 (match_operand 1 "" ""))]
++  ""
++{
++  rtx addr = XEXP (operands[0], 0);
++  if (!CONSTANT_ADDRESS_P (addr))
++    sorry ("indirect calls not implemented on this target");
++})
++
++(define_expand "sibcall"
++  [(call (match_operand 0 "" "")
++	 (match_operand 1 "" ""))]
++  ""
++{
++  rtx addr = XEXP (operands[0], 0);
++  gcc_assert (CONSTANT_ADDRESS_P (addr));
++})
++
++(define_insn "*call"
++  [(call (mem:HI (match_operand:P 0 "call_operand" "s"))
++	 (match_operand 1 "" ""))]
++  ""
++{
++  if (SIBLING_CALL_P (insn))
++    return "b\t%0";
++  else
++    return "call\t%0";
++})
++
++(define_expand "call_value"
++  [(set (match_operand 0 "" "")
++	(call (match_operand 1 "" "")
++	      (match_operand 2 "" "")))]
++  ""
++{
++  rtx addr = XEXP (operands[1], 0);
++  if (!CONSTANT_ADDRESS_P (addr))
++    sorry ("indirect calls not implemented on this target");
++})
++
++(define_expand "sibcall_value"
++  [(set (match_operand 0 "" "")
++	(call (match_operand 1 "" "")
++	      (match_operand 2 "" "")))]
++  ""
++{
++  rtx addr = XEXP (operands[1], 0);
++  gcc_assert (CONSTANT_ADDRESS_P (addr));
++})
++
++(define_insn "*call_value"
++  [(set (match_operand 0 "register_operand" "=r")
++	(call (mem:HI (match_operand:P 1 "call_operand" "s"))
++	      (match_operand 2 "" "")))]
++  ""
++{
++  if (SIBLING_CALL_P (insn))
++    return "b\t%1";
++  else
++    return "call\t%1";
++})
++
++(define_insn "return_internal"
++  [(return)]
++  ""
++  "ret")
++
++;; ---------------------------------
++;;     function entry / exit 
++;; ---------------------------------
++
++(define_expand "prologue"
++  [(const_int 0)]
++  ""
++{
++  lm8_expand_prologue ();
++  DONE;
++})
++
++(define_insn "call_prologue_saves_qi"
++  [(unspec_volatile:QI [(const_int 0)]
++		       UNSPECV_PROLOGUE_SAVES)
++   (use (match_operand:QI 0 "const_int_operand" ""))
++   (use (reg:QI 12))]
++  ""
++  "call\t__prologue_save_r%0"
++  [(set_attr "cc" "clobber")])
++
++(define_insn "call_prologue_saves_hi"
++  [(unspec_volatile:HI [(const_int 0)]
++		       UNSPECV_PROLOGUE_SAVES)
++   (use (match_operand:HI 0 "const_int_operand" ""))
++   (use (reg:HI 12))]
++  ""
++  "call\t__prologue_save_r%0"
++  [(set_attr "cc" "clobber")])
++
++(define_insn "call_prologue_saves_si"
++  [(unspec_volatile:SI [(const_int 0)]
++		       UNSPECV_PROLOGUE_SAVES)
++   (use (match_operand:SI 0 "const_int_operand" ""))
++   (use (reg:SI 12))]
++  ""
++  "call\t__prologue_save_r%0"
++  [(set_attr "cc" "clobber")])
++
++(define_expand "epilogue"
++  [(const_int 0)]
++  ""
++{
++  lm8_expand_epilogue (false);
++  DONE;
++})
++
++(define_insn "call_epilogue_restores_qi"
++  [(unspec_volatile:QI [(const_int 0)]
++		       UNSPECV_EPILOGUE_RESTORES)
++   (use (match_operand:QI 0 "const_int_operand" ""))
++   (use (reg:QI 12))]
++  ""
++  "call\t__epilogue_restore_r%0"
++  [(set_attr "cc" "clobber")])
++
++(define_insn "call_epilogue_restores_hi"
++  [(unspec_volatile:HI [(const_int 0)]
++		       UNSPECV_EPILOGUE_RESTORES)
++   (use (match_operand:HI 0 "const_int_operand" ""))
++   (use (reg:HI 12))]
++  ""
++  "call\t__epilogue_restore_r%0"
++  [(set_attr "cc" "clobber")])
++
++(define_insn "call_epilogue_restores_si"
++  [(unspec_volatile:SI [(const_int 0)]
++		       UNSPECV_EPILOGUE_RESTORES)
++   (use (match_operand:SI 0 "const_int_operand" ""))
++   (use (reg:SI 12))]
++  ""
++  "call\t__epilogue_restore_r%0"
++  [(set_attr "cc" "clobber")])
++
++(define_expand "sibcall_epilogue"
++  [(const_int 0)]
++  ""
++{
++  lm8_expand_epilogue (true);
++  DONE;
++})
++
++;; ---------------------------------
++;;             unspecs
++;; ---------------------------------
++
++(define_insn "import<mode>"
++  [(set (match_operand:QI 0 "register_operand" "=r,r")
++	(unspec_volatile:QI [(match_operand:P 1 "nonmemory_operand" "r,K")]
++			    UNSPECV_IMPORT))]
++  ""
++  "*return lm8_output_imexport (0, operands);"
++  [(set_attr "cc" "clobber")])
++
++(define_insn "export<mode>"
++  [(unspec_volatile:QI [(match_operand:QI 0 "register_operand" "r,r")
++			(match_operand:P 1 "nonmemory_operand" "r,K")]
++		       UNSPECV_EXPORT)]
++  ""
++  "*return lm8_output_imexport (1, operands);"
++  [(set_attr "cc" "clobber")])
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\lm8.opt gcc-4.4.3-lm8\gcc\config\lm8\lm8.opt
+--- gcc-4.4.3-org\gcc\config\lm8\lm8.opt	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\lm8.opt	Wed Apr 14 15:34:32 2010
+@@ -0,0 +1,41 @@
++; Options for the Lattice Mico8 port of the compiler.
++
++; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
++;
++; Contributed by Beyond Semiconductor (www.beyondsemi.com)
++;
++; This file is part of GCC.
++;
++; GCC is free software; you can redistribute it and/or modify it under
++; the terms of the GNU General Public License as published by the Free
++; Software Foundation; either version 3, or (at your option) any later
++; version.
++;
++; GCC is distributed in the hope that it will be useful, but WITHOUT ANY
++; WARRANTY; without even the implied warranty of MERCHANTABILITY or
++; FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++; for more details.
++;
++; You should have received a copy of the GNU General Public License
++; along with GCC; see the file COPYING3.  If not see
++; <http://www.gnu.org/licenses/>.
++
++mcall-prologues
++Target Report Mask(CALL_PROLOGUES)
++Use subroutines for function prologues and epilogues
++
++mint8
++Target Report Mask(INT8)
++Use an 8-bit 'int' type
++
++mcmodel=
++Target Report RejectNegative Joined Var(lm8_cmodel_string)
++Use given LM8 code model
++
++m16regs
++Target Report RejectNegative Mask(SIXTEEN_REGS)
++Use only first 16 registers
++
++mcall-stack-size=
++Target Report RejectNegative Joined Var(lm8_stacksize_string)
++Define call stack size
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\predicates.md gcc-4.4.3-lm8\gcc\config\lm8\predicates.md
+--- gcc-4.4.3-org\gcc\config\lm8\predicates.md	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\predicates.md	Wed Apr 14 15:34:32 2010
+@@ -0,0 +1,61 @@
++;; Predicate definitions for Lattice Mico8 architecture.
++;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
++;;
++;; Contributed by Beyond Semiconductor (www.beyondsemi.com)
++;;
++;; This file is part of GCC.
++;;
++;; GCC is free software; you can redistribute it and/or modify
++;; it under the terms of the GNU General Public License as published by
++;; the Free Software Foundation; either version 3, or (at your option)
++;; any later version.
++;;
++;; GCC is distributed in the hope that it will be useful,
++;; but WITHOUT ANY WARRANTY; without even the implied warranty of
++;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++;; GNU General Public License for more details.
++;;
++;; You should have received a copy of the GNU General Public License
++;; along with GCC; see the file COPYING3.  If not see
++;; <http://www.gnu.org/licenses/>.
++
++;; Return true if OP is a valid call operand.
++(define_predicate "call_operand"
++  (match_code "symbol_ref"))
++
++;; Returns 1 if OP is a valid move source operand
++
++(define_predicate "move_operand"
++  (match_operand 0 "general_operand")
++{
++  switch (GET_CODE (op))
++    {
++    case SYMBOL_REF:
++    case LABEL_REF:
++    case CONST:
++      return false;
++
++    default:
++      return true;
++    }
++})
++
++;; Returns true if and only if there is only a single byte in the const_int
++;; operand that is non zero.  ie., this predicate will match 0x00004f00, but
++;; not 0x00104f00.
++(define_predicate "one_byte_non_zero_operand"
++  (match_code "const_int")
++{
++  unsigned HOST_WIDE_INT x = INTVAL (op);
++
++  while (x)
++    {
++      if ((x & 0xff) && !(x & ~0xff))
++        return true;
++      if ((x & 0xff) && (x & ~0xff))
++        return false;
++      x >>= 8;
++    }
++  return true;
++})
++
+diff -uNr gcc-4.4.3-org\gcc\config\lm8\t-lm8 gcc-4.4.3-lm8\gcc\config\lm8\t-lm8
+--- gcc-4.4.3-org\gcc\config\lm8\t-lm8	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\gcc\config\lm8\t-lm8	Wed Apr 14 15:34:32 2010
+@@ -0,0 +1,65 @@
++LIB1ASMSRC = lm8/libgcc.S
++LIB1ASMFUNCS =							\
++	_ashlqi3 _ashlhi3 _ashlsi3 _ashrqi3 _ashrhi3 _ashrsi3	\
++	_lshrqi3 _lshrhi3 _lshrsi3 _mulqi3 _mulhi3 _mulsi3	\
++	_udivqi3 _umodqi3 _divqi3 _modqi3			\
++	_udivhi3 _umodhi3 _divhi3 _modhi3			\
++	_udivsi3 _umodsi3 _divsi3 _modsi3			\
++	_cmpqi2 _cmphi2 _cmpsi2 _ucmphi2 _ucmpsi2		\
++	_clzqi2 _clzhi2 _clzsi2					\
++	_ctzqi2 _ctzhi2 _ctzsi2					\
++	_ffsqi2 _ffshi2 _ffssi2					\
++	_popcountqi2 _popcounthi2 _popcountsi2			\
++	_parityqi2 _parityhi2 _paritysi2			\
++	_irq_save_restore _prologue _epilogue
++	
++
++LIB2FUNCS_EXCLUDE = \
++	_muldi3 _negdi2 _lshrdi3 _ashldi3 _ashrdi3 _cmpdi2 _ucmpdi2	\
++	_clear_cache _enable_execute_stack _trampoline __main _absvsi2	\
++	_absvdi2 _addvsi3 _addvdi3 _subvsi3 _subvdi3 _mulvsi3 _mulvdi3	\
++	_negvsi2 _negvdi2 _ctors _ffssi2 _ffsdi2 _clz _clzsi2 _clzdi2	\
++	_ctzsi2 _ctzdi2 _popcount_tab _popcountsi2 _popcountdi2		\
++	_paritysi2 _paritydi2 _powisf2 _powidf2 _powixf2 _powitf2	\
++	_mulsc3 _muldc3 _mulxc3 _multc3 _divsc3 _divdc3 _divxc3		\
++	_divtc3 _bswapsi2 _bswapdi2					\
++	_divdi3 _moddi3 _udivdi3 _umoddi3 _udiv_w_sdiv _udivmoddi4
++
++# Disable building _eprintf and __gcc_bcmp
++LIB2FUNCS_ST = 
++
++# Turn off the building of exception handling libraries.
++LIB2ADDEH =
++LIB2ADDEHDEP =
++
++LIB2_SIDITI_CONV_FUNCS = \
++	_fixsfsi _fixunssfsi _floatsisf _floatunsisf
++
++# We do not have the DF type.
++TARGET_LIBGCC2_CFLAGS = -DDF=SF -Dinhibit_libc -Os
++LIBGCC2_DEBUG_CFLAGS = -g0
++
++fp-bit.c: $(srcdir)/config/fp-bit.c $(srcdir)/config/lm8/t-lm8
++	echo '#define FLOAT' > fp-bit.c
++	echo '#ifndef __CMODEL_LARGE__' >> fp-bit.c
++	echo '#ifndef __SIXTEEN_REGS__' >> fp-bit.c
++	echo '#define FLOAT_ONLY' >> fp-bit.c
++	echo '#define CMPtype QItype' >> fp-bit.c
++	echo '#define DF SF' >> fp-bit.c
++	echo '#define DI SI' >> fp-bit.c
++	echo '#define FLOAT_BIT_ORDER_MISMATCH' >> fp-bit.c
++	echo '#define SMALL_MACHINE' >> fp-bit.c
++	echo 'typedef int QItype __attribute__ ((mode (QI)));' >> fp-bit.c
++	cat $(srcdir)/config/fp-bit.c >> fp-bit.c
++	echo '#endif' >> fp-bit.c
++	echo '#endif' >> fp-bit.c
++
++FPBIT = fp-bit.c
++
++MULTILIB_OPTIONS = mcmodel=small/mcmodel=medium/mcmodel=large m16regs
++MULTILIB_DIRNAMES = small medium large r16
++
++MULTILIB_EXCEPTIONS = *mcmodel=large*/*m16regs*
++
++LIBGCC = stmp-multilib
++INSTALL_LIBGCC = install-multilib
+diff -uNr gcc-4.4.3-org\gcc\config.gcc gcc-4.4.3-lm8\gcc\config.gcc
+--- gcc-4.4.3-org\gcc\config.gcc	Mon Jan 04 23:13:08 2010
++++ gcc-4.4.3-lm8\gcc\config.gcc	Wed Apr 14 15:34:40 2010
+@@ -320,6 +320,9 @@
+ hppa*-*-*)
+ 	cpu_type=pa
+ 	;;
++lm8-*-*)
++	cpu_type=lm8
++	;;
+ m32r*-*-*)
+         cpu_type=m32r
+         ;;
+@@ -1363,6 +1366,9 @@
+         tmake_file=iq2000/t-iq2000
+         out_file=iq2000/iq2000.c
+         md_file=iq2000/iq2000.md
++        ;;
++lm8-*)
++	tm_file="${tm_file} dbxelf.h elfos.h"
+         ;;
+ m32r-*-elf*)
+ 	tm_file="dbxelf.h elfos.h svr4.h ${tm_file}"
+diff -uNr gcc-4.4.3-org\libgcc\config\lm8\t-default gcc-4.4.3-lm8\libgcc\config\lm8\t-default
+--- gcc-4.4.3-org\libgcc\config\lm8\t-default	Thu Jan 01 08:00:00 1970
++++ gcc-4.4.3-lm8\libgcc\config\lm8\t-default	Wed Apr 14 15:34:32 2010
+@@ -0,0 +1,3 @@
++# Assemble startup files.
++$(T)crt0.o: $(gcc_srcdir)/config/lm8/crt0.S
++	$(gcc_compile) -c -x assembler-with-cpp $<
+diff -uNr gcc-4.4.3-org\libgcc\config.host gcc-4.4.3-lm8\libgcc\config.host
+--- gcc-4.4.3-org\libgcc\config.host	Fri Apr 17 19:58:42 2009
++++ gcc-4.4.3-lm8\libgcc\config.host	Wed Apr 14 15:34:40 2010
+@@ -355,6 +355,10 @@
+ 	;;
+ iq2000*-*-elf*)
+         ;;
++lm8-*-*)
++	extra_parts="crt0.o"
++	tmake_file="lm8/t-default"	
++        ;;
+ m32r-*-elf*|m32r-*-rtems*)
+  	;;
+ m32rle-*-elf*)

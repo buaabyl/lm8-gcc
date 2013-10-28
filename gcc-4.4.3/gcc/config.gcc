@@ -320,6 +320,9 @@ ia64-*-*)
 hppa*-*-*)
 	cpu_type=pa
 	;;
+lm8-*-*)
+	cpu_type=lm8
+	;;
 m32r*-*-*)
         cpu_type=m32r
         ;;
@@ -1363,6 +1366,9 @@ iq2000*-*-elf*)
         tmake_file=iq2000/t-iq2000
         out_file=iq2000/iq2000.c
         md_file=iq2000/iq2000.md
+        ;;
+lm8-*)
+	tm_file="${tm_file} dbxelf.h elfos.h"
         ;;
 m32r-*-elf*)
 	tm_file="dbxelf.h elfos.h svr4.h ${tm_file}"
